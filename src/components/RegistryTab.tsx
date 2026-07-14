@@ -1,21 +1,49 @@
 import React, { useState, useEffect } from 'react';
 import { Database, Plus, Search, CheckCircle2, AlertTriangle, Bot, Cpu, Trash2, ArrowRight, Info, Zap, Code, ChevronRight } from 'lucide-react';
 import { Agent } from '../types';
+import { buildAgentCard, type AgentCardV02 } from '../api/nekiro';
+import { PERMISSIONS_DB } from '../data';
 
 interface RegistryTabProps {
   agents: Agent[];
-  onRegisterAgent: (agent: Agent) => void;
+  onRegisterAgent: (card: AgentCardV02) => Promise<void>;
+  onPublishAgent: (agent: Agent) => Promise<void>;
+  onDisableAgent: (agent: Agent) => Promise<void>;
+  catalogLoading: boolean;
+  catalogError: string | null;
+  defaultOwnerId: string;
+  defaultOwnerName: string;
   searchQuery: string;
 }
 
-export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: RegistryTabProps) {
+const DECLARED_PERMISSION_IDS = ['READ_S3', 'WRITE_LOGS', 'EXEC_LAMBDA'];
+const DEFAULT_CARD_LIMITS = {
+  timeoutMs: 30_000,
+  maxInputBytes: 1_048_576,
+  maxOutputBytes: 1_048_576,
+  streaming: true,
+};
+
+export default function RegistryTab({
+  agents,
+  onRegisterAgent,
+  onPublishAgent,
+  onDisableAgent,
+  catalogLoading,
+  catalogError,
+  defaultOwnerId,
+  defaultOwnerName,
+  searchQuery,
+}: RegistryTabProps) {
   const [isRegistering, setIsRegistering] = useState(false);
   const [localSearch, setLocalSearch] = useState('');
 
   // Form states for Registration Workbench
   const [agentId, setAgentId] = useState('');
-  const [namespace, setNamespace] = useState('');
+  const [namespace, setNamespace] = useState(defaultOwnerId);
   const [description, setDescription] = useState('');
+  const [version, setVersion] = useState('0.1.0');
+  const [endpoint, setEndpoint] = useState('');
   const [capabilitiesJson, setCapabilitiesJson] = useState(
     JSON.stringify({
       "capabilities": [
@@ -37,6 +65,9 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
 
   const [jsonIsValid, setJsonIsValid] = useState(true);
   const [activeSection, setActiveSection] = useState<'general' | 'versioning' | 'endpoints' | 'capabilities' | 'permissions'>('general');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // JSON Validation effect
   useEffect(() => {
@@ -48,65 +79,94 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
     }
   }, [capabilitiesJson]);
 
+  const hasCapabilities = (() => {
+    try {
+      const parsed = JSON.parse(capabilitiesJson);
+      return Array.isArray(parsed?.capabilities) && parsed.capabilities.length > 0;
+    } catch {
+      return false;
+    }
+  })();
+
+  const canSubmit = Boolean(
+    agentId.trim() &&
+    namespace.trim() &&
+    description.trim() &&
+    version.trim() &&
+    endpoint.trim() &&
+    jsonIsValid &&
+    hasCapabilities,
+  );
+
   // Compute completeness score dynamically
   const getCompleteness = () => {
-    let score = 20; // baseline
-    if (agentId) score += 20;
+    let score = 0;
+    if (agentId) score += 15;
     if (namespace) score += 15;
     if (description) score += 15;
-    if (jsonIsValid) score += 30;
+    if (version) score += 10;
+    if (endpoint) score += 15;
+    if (jsonIsValid && hasCapabilities) score += 30;
     return Math.min(100, score);
   };
 
-  const handleRegister = () => {
-    if (!agentId) {
-      alert("Please enter a valid Agent ID");
+  const handleRegister = async () => {
+    if (!canSubmit || isSubmitting) {
       return;
     }
-    
-    // Parse Capabilities to pull any tags or defaults
-    let tags = ['Custom'];
+
+    setIsSubmitting(true);
+    setActionError(null);
     try {
-      const parsed = JSON.parse(capabilitiesJson);
-      if (parsed.capabilities && Array.isArray(parsed.capabilities)) {
-        parsed.capabilities.forEach((c: any) => {
-          if (c.type) tags.push(c.type.toUpperCase());
-        });
-      }
-    } catch {
-      // ignore, invalid JSON registered (we validated but fallback)
+      await onRegisterAgent(buildAgentCard({
+        agentId: agentId.trim(),
+        ownerId: namespace.trim(),
+        ownerDisplayName: defaultOwnerName.trim() || namespace.trim(),
+        description: description.trim(),
+        version: version.trim(),
+        endpoint: endpoint.trim(),
+        authentication: 'none',
+        permissions: DECLARED_PERMISSION_IDS.map((id) => ({
+          id,
+          description: PERMISSIONS_DB[id]?.description || `Declared permission ${id}.`,
+        })),
+        capabilitiesJson,
+        limits: DEFAULT_CARD_LIMITS,
+      }));
+      setIsRegistering(false);
+      setAgentId('');
+      setNamespace(defaultOwnerId);
+      setDescription('');
+      setVersion('0.1.0');
+      setEndpoint('');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Unable to register Agent Card.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    const newAgent: Agent = {
-      id: agentId,
-      name: agentId,
-      version: 'v0.1.0-draft',
-      owner: 'SystemAdmin',
-      description: description || 'Custom registered agent block.',
-      tags: tags.slice(0, 3),
-      status: 'draft',
-      schema: capabilitiesJson
-    };
-
-    onRegisterAgent(newAgent);
-    setIsRegistering(false);
-    
-    // Reset form states
-    setAgentId('');
-    setNamespace('');
-    setDescription('');
   };
 
-  // Filter agents based on global searchQuery AND localSearch
+  const handleLifecycleAction = async (agent: Agent, action: (agent: Agent) => Promise<void>) => {
+    setPendingActionId(agent.id);
+    setActionError(null);
+    try {
+      await action(agent);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Catalog action failed.');
+    } finally {
+      setPendingActionId(null);
+    }
+  };
+
+  // Filter agents based on global searchQuery and localSearch
   const filteredAgents = agents.filter(agent => {
-    const term = (searchQuery || localSearch).toLowerCase();
-    if (!term) return true;
-    return (
+    const terms = [searchQuery, localSearch].map((term) => term.trim().toLowerCase()).filter(Boolean);
+    return terms.every((term) => (
       agent.name.toLowerCase().includes(term) ||
       agent.owner.toLowerCase().includes(term) ||
       agent.description.toLowerCase().includes(term) ||
       agent.tags.some(t => t.toLowerCase().includes(term))
-    );
+    ));
   });
 
   if (isRegistering) {
@@ -209,16 +269,28 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
                     <Zap size={14} /> Versioning Settings
                   </h3>
                   <p className="text-brand-on-surface-variant text-xs">
-                    New agents are registered under the draft state of <code className="font-mono-code bg-brand-container px-1 py-0.5 rounded text-brand-primary">v0.1.0-draft</code>. Transitioning to release channels requires ledger consensus in Phase 2.
+                    Register an immutable semantic version as a draft, then publish it through the Catalog lifecycle.
                   </p>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-label-caps text-[9px] text-brand-on-surface-variant uppercase tracking-wider">
+                      Agent Version <span className="text-brand-error">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={version}
+                      onChange={(e) => setVersion(e.target.value)}
+                      placeholder="e.g. 1.0.0"
+                      className="bg-transparent border-b border-brand-outline-variant pb-1 font-mono-code text-xs text-brand-on-surface focus:outline-none focus:border-brand-primary focus:ring-0 transition-colors placeholder:text-brand-on-surface-variant/30"
+                    />
+                  </div>
                   <div className="flex flex-col gap-2 mt-4 p-4 border border-brand-outline-variant bg-brand-lowest rounded">
                     <div className="flex justify-between text-xs text-brand-on-surface-variant">
                       <span>DEPLOY CHANNEL</span>
-                      <span className="font-mono-code text-brand-primary">DRAFT ONLY</span>
+                      <span className="font-mono-code text-brand-primary">CATALOG DRAFT</span>
                     </div>
                     <div className="flex justify-between text-xs text-brand-on-surface-variant">
-                      <span>APPROVAL STRATEGY</span>
-                      <span className="font-mono-code text-brand-primary">AUTO_INST_LOCAL</span>
+                      <span>PUBLICATION</span>
+                      <span className="font-mono-code text-brand-primary">MANUAL PUBLISH</span>
                     </div>
                   </div>
                 </div>
@@ -231,17 +303,19 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
                     <Cpu size={14} /> Service Endpoints
                   </h3>
                   <p className="text-brand-on-surface-variant text-xs">
-                    Configure endpoint protocols for communication gateway validation.
+                    Configure the HTTP(S) A2A endpoint advertised in the Agent Card.
                   </p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-brand-lowest p-3 border border-brand-outline-variant rounded">
-                      <span className="font-mono-label text-[10px] text-brand-primary block mb-1">LOCAL ENDPOINT</span>
-                      <span className="font-mono-code text-xs text-brand-on-surface">ws://localhost:9002/stream</span>
-                    </div>
-                    <div className="bg-brand-lowest p-3 border border-brand-outline-variant rounded">
-                      <span className="font-mono-label text-[10px] text-brand-primary block mb-1">PROTO_BUF SERVICE</span>
-                      <span className="font-mono-code text-xs text-brand-on-surface">NekiroService.proto</span>
-                    </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="font-label-caps text-[9px] text-brand-on-surface-variant uppercase tracking-wider">
+                      A2A Endpoint <span className="text-brand-error">*</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={endpoint}
+                      onChange={(e) => setEndpoint(e.target.value)}
+                      placeholder="https://agent.example.com/a2a"
+                      className="bg-transparent border-b border-brand-outline-variant pb-1 font-mono-code text-xs text-brand-on-surface focus:outline-none focus:border-brand-primary focus:ring-0 transition-colors placeholder:text-brand-on-surface-variant/30"
+                    />
                   </div>
                 </div>
               )}
@@ -331,7 +405,7 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
                     <Bot size={18} className="text-brand-primary animate-pulse" />
                   </div>
                   <span className="font-mono-label text-[9px] text-brand-on-surface-variant bg-brand-container px-2 py-0.5 rounded border border-brand-outline-variant/50">
-                    v0.1.0-draft
+                    v{version || '0.1.0'}-draft
                   </span>
                 </div>
                 <div>
@@ -367,13 +441,20 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
         </div>
 
         {/* Footer Actions */}
-        <div className="h-14 border-t border-brand-outline-variant bg-brand-lowest flex justify-between items-center px-6">
-          <button
-            onClick={() => setIsRegistering(false)}
-            className="h-8 px-4 font-label-caps text-[10px] text-brand-on-surface border border-brand-outline-variant rounded hover:bg-brand-container transition-colors cursor-pointer"
-          >
-            ABORT WORKBENCH
-          </button>
+        <div className="min-h-14 border-t border-brand-outline-variant bg-brand-lowest flex justify-between items-center gap-4 px-6 py-2">
+          <div className="min-w-0 flex items-center gap-3">
+            <button
+              onClick={() => setIsRegistering(false)}
+              className="h-8 px-4 shrink-0 font-label-caps text-[10px] text-brand-on-surface border border-brand-outline-variant rounded hover:bg-brand-container transition-colors cursor-pointer"
+            >
+              ABORT WORKBENCH
+            </button>
+            {actionError && (
+              <span className="text-[10px] text-brand-error font-mono-label truncate" title={actionError}>
+                {actionError}
+              </span>
+            )}
+          </div>
           <div className="flex gap-3">
             <button
               onClick={() => {
@@ -385,14 +466,14 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
             </button>
             <button
               onClick={handleRegister}
-              disabled={!agentId}
+              disabled={!canSubmit || isSubmitting}
               className={`h-8 px-6 font-label-caps text-[10px] rounded flex items-center gap-2 shadow-[0_0_12px_rgba(173,198,255,0.15)] transition-all cursor-pointer ${
-                agentId
+                canSubmit && !isSubmitting
                   ? 'bg-brand-primary text-brand-on-primary hover:bg-brand-primary/90 font-bold'
                   : 'bg-brand-container text-brand-on-surface-variant border border-brand-outline-variant cursor-not-allowed'
               }`}
             >
-              <span>REGISTER AGENT</span>
+              <span>{isSubmitting ? 'REGISTERING...' : 'REGISTER AGENT'}</span>
             </button>
           </div>
         </div>
@@ -455,8 +536,8 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
                 </div>
               </div>
 
-              {/* Status Chip */}
-              <div>
+              {/* Status Chip and Catalog Lifecycle Action */}
+              <div className="flex flex-col items-end gap-1.5">
                 {agent.status === 'published' && (
                   <div className="border border-green-500 bg-green-500/10 text-green-400 px-2 py-0.5 rounded text-[9px] font-mono-label uppercase flex items-center gap-1.5 shadow-[0_0_6px_rgba(34,197,94,0.1)]">
                     <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
@@ -474,6 +555,38 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
                     <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse"></span>
                     <span>Local Draft</span>
                   </div>
+                )}
+                {agent.status === 'disabled' && (
+                  <div className="border border-brand-outline-variant bg-brand-container text-brand-on-surface-variant px-2 py-0.5 rounded text-[9px] font-mono-label uppercase flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-brand-outline"></span>
+                    <span>Disabled</span>
+                  </div>
+                )}
+                {agent.status === 'draft' && (
+                  <button
+                    type="button"
+                    disabled={pendingActionId === agent.id}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleLifecycleAction(agent, onPublishAgent);
+                    }}
+                    className="border border-brand-primary/50 bg-brand-primary/10 text-brand-primary hover:bg-brand-primary/20 disabled:opacity-50 px-2 py-0.5 rounded text-[9px] font-mono-label uppercase"
+                  >
+                    {pendingActionId === agent.id ? 'Publishing...' : 'Publish'}
+                  </button>
+                )}
+                {agent.status === 'published' && (
+                  <button
+                    type="button"
+                    disabled={pendingActionId === agent.id}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleLifecycleAction(agent, onDisableAgent);
+                    }}
+                    className="border border-brand-error/40 bg-brand-error-container/10 text-brand-error hover:bg-brand-error-container/20 disabled:opacity-50 px-2 py-0.5 rounded text-[9px] font-mono-label uppercase"
+                  >
+                    {pendingActionId === agent.id ? 'Disabling...' : 'Disable'}
+                  </button>
                 )}
               </div>
             </div>
@@ -505,8 +618,16 @@ export default function RegistryTab({ agents, onRegisterAgent, searchQuery }: Re
         ))}
       </div>
 
+      {(catalogLoading || catalogError || actionError) && (
+        <div className="text-center py-3 border border-brand-outline-variant bg-brand-lowest rounded">
+          {catalogLoading && <p className="text-brand-on-surface-variant text-[10px] font-mono-label">SYNCING CATALOG...</p>}
+          {catalogError && <p className="text-brand-error text-[10px] font-mono-label">{catalogError}</p>}
+          {!catalogError && actionError && <p className="text-brand-error text-[10px] font-mono-label">{actionError}</p>}
+        </div>
+      )}
+
       {/* No Agents Fallback */}
-      {filteredAgents.length === 0 && (
+      {!catalogLoading && filteredAgents.length === 0 && (
         <div className="text-center py-12 border border-dashed border-brand-outline-variant bg-brand-lowest rounded">
           <p className="text-brand-on-surface-variant text-sm font-mono-label">No matching agents found in registry.</p>
         </div>

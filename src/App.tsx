@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -7,7 +7,8 @@ import InstallationsTab from './components/InstallationsTab';
 import InvocationsTab from './components/InvocationsTab';
 import LedgerTab from './components/LedgerTab';
 
-import { INITIAL_AGENTS, INITIAL_INSTALLATIONS } from './data';
+import { INITIAL_INSTALLATIONS } from './data';
+import { NekiroApiClient, mapCatalogEntry, type AgentCardV02 } from './api/nekiro';
 import { Agent, Installation } from './types';
 import { X, ShieldAlert, Cpu, CheckCircle2, HelpCircle } from 'lucide-react';
 
@@ -16,8 +17,18 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   
   // Dynamic App states shared between tabs for live flow!
-  const [agents, setAgents] = useState<Agent[]>(INITIAL_AGENTS);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [installations, setInstallations] = useState<Installation[]>(INITIAL_INSTALLATIONS);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  const nekiroClient = useMemo(
+    () => new NekiroApiClient({
+      baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL ?? '',
+      token: import.meta.env.VITE_NEKIRO_TOKEN ?? '',
+    }),
+    [],
+  );
 
   // Modal dialog states
   const [showSettings, setShowSettings] = useState(false);
@@ -42,11 +53,43 @@ export default function App() {
     }
   };
 
-  // 1. Core Handlers: Register a brand new Agent archetype
-  const handleRegisterAgent = (newAgent: Agent) => {
-    setAgents((prev) => [newAgent, ...prev]);
-    // Display standard console log notice
-    console.log(`[LEDGER_SYS] Agent committed to workspace archetype state tree: ${newAgent.id}`);
+  const loadAgents = useCallback(async (query = '') => {
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      const response = await nekiroClient.searchAgents(query.trim() ? {query: query.trim()} : undefined);
+      setAgents(response.items.map(mapCatalogEntry));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to load the NeKiro Catalog.';
+      console.error('[CATALOG] Failed to load agents:', error);
+      setCatalogError(message);
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [nekiroClient]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadAgents(searchQuery);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [loadAgents, searchQuery]);
+
+  const handleRegisterAgent = async (card: AgentCardV02) => {
+    await nekiroClient.registerAgent(card);
+    await loadAgents(searchQuery);
+  };
+
+  const getCatalogVersion = (agent: Agent) => agent.version.replace(/^v/, '');
+
+  const handlePublishAgent = async (agent: Agent) => {
+    await nekiroClient.publishAgentVersion(agent.id, getCatalogVersion(agent));
+    await loadAgents(searchQuery);
+  };
+
+  const handleDisableAgent = async (agent: Agent) => {
+    await nekiroClient.disableAgentVersion(agent.id, getCatalogVersion(agent));
+    await loadAgents(searchQuery);
   };
 
   // 2. Core Handlers: Toggle container instance enabled/disabled state
@@ -135,6 +178,12 @@ export default function App() {
               <RegistryTab 
                 agents={agents} 
                 onRegisterAgent={handleRegisterAgent} 
+                onPublishAgent={handlePublishAgent}
+                onDisableAgent={handleDisableAgent}
+                catalogLoading={catalogLoading}
+                catalogError={catalogError}
+                defaultOwnerId={import.meta.env.VITE_NEKIRO_OWNER_ID ?? ''}
+                defaultOwnerName={import.meta.env.VITE_NEKIRO_OWNER_NAME ?? ''}
                 searchQuery={searchQuery}
               />
             </motion.div>
