@@ -5,7 +5,7 @@ export interface Agent {
   owner: string;
   description: string;
   tags: string[];
-  status: 'published' | 'deprecated' | 'draft';
+  status: 'published' | 'deprecated' | 'draft' | 'disabled';
   schema: string;
 }
 
