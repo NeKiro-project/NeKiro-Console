@@ -1,10 +1,10 @@
-# Catalog API Integration Implementation Plan
+﻿# Catalog API Integration Implementation Plan
 
 > For agentic workers: use superpowers:executing-plans to implement this plan task-by-task.
 
 Goal: Connect the Registry tab to the implemented NeKiro Control Plane Catalog API while leaving Installations, Invocations, and Ledger unchanged.
 
-Architecture: Add a typed NekiroApiClient and pure Agent Card/response adapters under src/api/. Keep server state in App.tsx, refresh it after Catalog mutations, and pass async actions into RegistryTab.tsx. The browser calls only public /v2/agents endpoints; no Router API or static fallback is used for Registry data.
+Architecture: Add a typed NekiroApiClient and pure Agent Card/response adapters under src/api/. Keep server state in App.tsx, refresh it after Catalog mutations, and pass async actions into RegistryTab.tsx. The browser calls only public legacy v2 agent endpoints endpoints; no Router API or static fallback is used for Registry data.
 
 Tech Stack: React 19, TypeScript, Vite, Tailwind CSS v4, browser fetch, and Node node:test through the existing tsx dev dependency.
 
@@ -68,7 +68,7 @@ Create a CatalogEntry with a disabled publication status, an owner display name,
 
 - [ ] Step 4: Write a failing request and error test
 
-Inject a fake fetch into NekiroApiClient, call searchAgents with query echo, and assert the request URL is https://api.example.test/v2/agents?query=echo, the Accept header is application/json, and the Authorization header is Bearer test-token. Return a 409 Platform Error and assert rejection with NekiroApiError status 409 and code CONFLICT.
+Inject a fake fetch into NekiroApiClient, call searchAgents with query echo, and assert the request URL is https://api.example.testlegacy v2 agent endpoints?query=echo, the Accept header is application/json, and the Authorization header is Bearer test-token. Return a 409 Platform Error and assert rejection with NekiroApiError status 409 and code CONFLICT.
 
 - [ ] Step 5: Run the focused test and verify RED
 

@@ -1,31 +1,51 @@
+export type PublicationStatus = 'draft' | 'published' | 'disabled';
+export type InstallationStatus = 'enabled' | 'disabled' | 'uninstalled';
+
+export interface AgentPermissionSummary {
+  id: string;
+  description: string;
+}
+
 export interface Agent {
   id: string;
   name: string;
   version: string;
   owner: string;
+  ownerId: string;
   description: string;
   tags: string[];
-  status: 'published' | 'deprecated' | 'draft' | 'disabled';
+  status: PublicationStatus;
   schema: string;
+  permissions: AgentPermissionSummary[];
+  registeredAt: string;
+  publishedAt?: string;
+}
+
+export interface Workspace {
+  workspaceId: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Installation {
-  id: string;
+  installationId: string;
+  workspaceId: string;
   agentId: string;
-  agentName: string;
-  version: string;
+  versionConstraint: string;
+  installedVersion: string;
   acceptedPermissions: string[];
-  installedDate: string;
-  state: 'ENABLED' | 'DISABLED' | 'FAULTED';
-  endpoint: string;
-  installedBy: string;
+  status: InstallationStatus;
+  installedAt: string;
+  updatedAt: string;
+  uninstalledAt?: string;
 }
 
-export interface Permission {
-  name: string;
-  scope: string;
-  description: string;
-  highRisk?: boolean;
+export interface PlatformErrorView {
+  status: number;
+  code?: string;
+  message: string;
+  traceId?: string;
 }
 
 export interface TraceNode {

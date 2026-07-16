@@ -1,4 +1,4 @@
-# Catalog API Integration Design
+﻿# Catalog API Integration Design
 
 ## Scope
 
@@ -11,11 +11,11 @@ operations are not implemented yet.
 
 The Console uses the public Control Plane endpoints only:
 
-- `GET /v2/agents` for discovery and search
-- `POST /v2/agents` for Agent Card registration
-- `GET /v2/agents/{agentId}/versions/{version}` for exact reads
-- `POST /v2/agents/{agentId}/versions/{version}/publish`
-- `POST /v2/agents/{agentId}/versions/{version}/disable`
+- `GET legacy v2 agent endpoints` for discovery and search
+- `POST legacy v2 agent endpoints` for Agent Card registration
+- `GET legacy v2 agent endpoints/{agentId}/versions/{version}` for exact reads
+- `POST legacy v2 agent endpoints/{agentId}/versions/{version}/publish`
+- `POST legacy v2 agent endpoints/{agentId}/versions/{version}/disable`
 
 The API base URL, bearer token, and caller identity remain runtime configuration
 through Vite environment variables. No internal Router endpoint or mock

@@ -1,20 +1,42 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# NeKiro Console MVP
 
-# Run and deploy your AI Studio app
+React/Vite/TypeScript/Tailwind Console for the NeKiro Agent Operating Platform.
 
-This contains everything you need to run your app locally.
+This Console follows the MVP spec in docs/superpowers/specs/2026-07-16-nekiro-console-mvp-spec.md.
 
-View your app in AI Studio: https://ai.studio/apps/a75d4b8e-bd80-4ca4-80d7-7682f6378eb5
+## Live surfaces
 
-## Run Locally
+- Registry: GET/POST /v3/agents, exact reads, publish, and disable for Agent Card v0.2.
+- Workspace: POST /v3/workspaces and GET /v3/workspaces/{workspaceId} from the header.
+- Installations: install, list, enable, disable, and uninstall through /v3/workspaces/{workspaceId}/installations.
 
-**Prerequisites:**  Node.js
+## Gated surfaces
 
+- Invocations and Ledger are intentionally contract-aware empty states.
+- The UI does not render fake traces, fake task streams, or fabricated timeout events.
+- These pages should become live only after the backend headless Invoke to Record path is delivered.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Configuration
+
+Create .env.local or export these values for local development:
+
+    VITE_NEKIRO_API_BASE_URL=http://127.0.0.1:18080
+    VITE_NEKIRO_TOKEN=
+    VITE_NEKIRO_OWNER_ID=
+    VITE_NEKIRO_OWNER_NAME=
+    VITE_NEKIRO_DEFAULT_WORKSPACE_ID=
+
+The bearer token is sent only as an Authorization header. It is not written to local storage.
+
+## Run locally
+
+    npm install
+    npm run dev
+
+## Verification
+
+    npm test
+    npm run lint
+    npm run build
+    rg "/v2/agents" src docs -n
+    rg "INITIAL_AGENTS|INITIAL_INSTALLATIONS|TRACE_HISTORIES" src -n

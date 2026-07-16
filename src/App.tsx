@@ -1,26 +1,32 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
-import Sidebar from './components/Sidebar';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {AnimatePresence, motion} from 'motion/react';
+import {CheckCircle2, Cpu, HelpCircle, ShieldAlert, X} from 'lucide-react';
+
+import {mapCatalogEntry, NekiroApiClient, toPlatformErrorView, type AgentCardV02} from './api/nekiro';
 import Header from './components/Header';
-import RegistryTab from './components/RegistryTab';
 import InstallationsTab from './components/InstallationsTab';
 import InvocationsTab from './components/InvocationsTab';
 import LedgerTab from './components/LedgerTab';
-
-import { INITIAL_INSTALLATIONS } from './data';
-import { NekiroApiClient, mapCatalogEntry, type AgentCardV02 } from './api/nekiro';
-import { Agent, Installation } from './types';
-import { X, ShieldAlert, Cpu, CheckCircle2, HelpCircle } from 'lucide-react';
+import RegistryTab from './components/RegistryTab';
+import Sidebar from './components/Sidebar';
+import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspace} from './types';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'registry' | 'installations' | 'invocations' | 'ledger'>('registry');
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Dynamic App states shared between tabs for live flow!
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [installations, setInstallations] = useState<Installation[]>(INITIAL_INSTALLATIONS);
   const [catalogLoading, setCatalogLoading] = useState(false);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<PlatformErrorView | null>(null);
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [workspaceDraft, setWorkspaceDraft] = useState(import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID ?? '');
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<PlatformErrorView | null>(null);
+  const [installations, setInstallations] = useState<Installation[]>([]);
+  const [installationLoading, setInstallationLoading] = useState(false);
+  const [installationError, setInstallationError] = useState<PlatformErrorView | null>(null);
+  const [pendingInstallAgentId, setPendingInstallAgentId] = useState<string | undefined>();
+  const [showSettings, setShowSettings] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
 
   const nekiroClient = useMemo(
     () => new NekiroApiClient({
@@ -30,29 +36,6 @@ export default function App() {
     [],
   );
 
-  // Modal dialog states
-  const [showSettings, setShowSettings] = useState(false);
-  const [showSupport, setShowSupport] = useState(false);
-
-  // Settings customizable metrics
-  const [scanInterval, setScanInterval] = useState('500ms');
-  const [enableTelemetry, setEnableTelemetry] = useState(true);
-  const [secureSandbox, setSecureSandbox] = useState(true);
-
-  // Synchronize search placeholders
-  const getSearchPlaceholder = () => {
-    switch (activeTab) {
-      case 'registry':
-        return 'Search registered agent archetypes, tags, owners...';
-      case 'installations':
-        return 'Search active containers, endpoints, versions...';
-      case 'invocations':
-        return 'Search capability tasks, query types...';
-      case 'ledger':
-        return 'Search active transaction IDs, traces...';
-    }
-  };
-
   const loadAgents = useCallback(async (query = '') => {
     setCatalogLoading(true);
     setCatalogError(null);
@@ -60,13 +43,46 @@ export default function App() {
       const response = await nekiroClient.searchAgents(query.trim() ? {query: query.trim()} : undefined);
       setAgents(response.items.map(mapCatalogEntry));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to load the NeKiro Catalog.';
-      console.error('[CATALOG] Failed to load agents:', error);
-      setCatalogError(message);
+      setCatalogError(toPlatformErrorView(error, 'Unable to load the NeKiro Catalog.'));
     } finally {
       setCatalogLoading(false);
     }
   }, [nekiroClient]);
+
+  const loadWorkspace = useCallback(async (workspaceId: string) => {
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    try {
+      const value = await nekiroClient.getWorkspace(workspaceId);
+      setWorkspace(value);
+      setWorkspaceDraft(value.workspaceId);
+      return value;
+    } catch (error) {
+      setWorkspace(null);
+      setInstallations([]);
+      setWorkspaceError(toPlatformErrorView(error, 'Unable to load Workspace.'));
+      return null;
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  }, [nekiroClient]);
+
+  const loadInstallations = useCallback(async (workspaceId = workspace?.workspaceId) => {
+    if (!workspaceId) {
+      setInstallations([]);
+      return;
+    }
+    setInstallationLoading(true);
+    setInstallationError(null);
+    try {
+      const response = await nekiroClient.listInstallations(workspaceId, {limit: 100});
+      setInstallations(response.items);
+    } catch (error) {
+      setInstallationError(toPlatformErrorView(error, 'Unable to load Workspace Installations.'));
+    } finally {
+      setInstallationLoading(false);
+    }
+  }, [nekiroClient, workspace?.workspaceId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -75,111 +91,155 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [loadAgents, searchQuery]);
 
+  useEffect(() => {
+    const defaultWorkspaceId = import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID?.trim();
+    if (defaultWorkspaceId) {
+      void loadWorkspace(defaultWorkspaceId).then((value) => {
+        if (value) {
+          void loadInstallations(value.workspaceId);
+        }
+      });
+    }
+  }, [loadInstallations, loadWorkspace]);
+
+  const handleCreateWorkspace = async () => {
+    setWorkspaceLoading(true);
+    setWorkspaceError(null);
+    try {
+      const value = await nekiroClient.createWorkspace(workspaceDraft);
+      setWorkspace(value);
+      setWorkspaceDraft(value.workspaceId);
+      await loadInstallations(value.workspaceId);
+    } catch (error) {
+      setWorkspaceError(toPlatformErrorView(error, 'Unable to create Workspace.'));
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const handleReadWorkspace = async () => {
+    const value = await loadWorkspace(workspaceDraft);
+    if (value) {
+      await loadInstallations(value.workspaceId);
+    }
+  };
+
   const handleRegisterAgent = async (card: AgentCardV02) => {
     await nekiroClient.registerAgent(card);
     await loadAgents(searchQuery);
   };
 
-  const getCatalogVersion = (agent: Agent) => agent.version.replace(/^v/, '');
-
   const handlePublishAgent = async (agent: Agent) => {
-    await nekiroClient.publishAgentVersion(agent.id, getCatalogVersion(agent));
+    await nekiroClient.publishAgentVersion(agent.id, agent.version);
     await loadAgents(searchQuery);
   };
 
   const handleDisableAgent = async (agent: Agent) => {
-    await nekiroClient.disableAgentVersion(agent.id, getCatalogVersion(agent));
+    await nekiroClient.disableAgentVersion(agent.id, agent.version);
     await loadAgents(searchQuery);
   };
 
-  // 2. Core Handlers: Toggle container instance enabled/disabled state
-  const handleToggleState = (id: string) => {
-    setInstallations((prev) =>
-      prev.map((inst) => {
-        if (inst.id === id) {
-          const nextState = inst.state === 'ENABLED' ? 'DISABLED' : 'ENABLED';
-          console.log(`[CONTAINER_DAEMON] Instance state shifted: ${inst.id} -> ${nextState}`);
-          return { ...inst, state: nextState };
-        }
-        return inst;
-      })
-    );
+  const handleOpenInstall = (agent: Agent) => {
+    setPendingInstallAgentId(agent.id);
+    setActiveTab('installations');
+    setSearchQuery('');
   };
 
-  // 3. Core Handlers: Uninstall a container instance permanently
-  const handleUninstall = (id: string) => {
-    setInstallations((prev) => prev.filter((inst) => inst.id !== id));
-    console.log(`[CONTAINER_DAEMON] Sandbox partition unallocated: ${id}`);
-  };
-
-  // 4. Core Handlers: Deploy a registered agent onto the Installations list
-  const handleAddInstallation = (agent: Agent) => {
-    const mockId = `inst-${agent.id.slice(0, 4).toLowerCase()}-${Math.random().toString(36).substring(2, 6)}`;
-    const newInst: Installation = {
-      id: mockId,
+  const handleInstallAgent = async (agent: Agent, versionConstraint: string, acceptedPermissions: string[]) => {
+    if (!workspace) {
+      throw new Error('Select or create a Workspace before installing an Agent.');
+    }
+    await nekiroClient.installAgent(workspace.workspaceId, {
       agentId: agent.id,
-      agentName: `${agent.name}_instance_v${installations.length + 1}`,
-      version: agent.version === 'v0.1.0-draft' ? '0.1.0-beta' : agent.version.replace('v', '') + '-local',
-      acceptedPermissions: agent.id === 'DataSynthesizer_Alpha' 
-        ? ['READ_S3', 'EXEC_LAMBDA', 'NET_EGRESS_HTTP', 'WRITE_LOGS']
-        : agent.id === 'AuthGateway_Node'
-        ? ['NET_OUT']
-        : ['READ_REPO', 'WRITE_PR'],
-      installedDate: new Date().toISOString().split('T')[0],
-      state: 'ENABLED',
-      endpoint: `ws://nk-0814.internal/${mockId.split('-')[1]}`,
-      installedBy: 'sys-admin'
-    };
+      versionConstraint,
+      acceptedPermissions,
+    });
+    await loadInstallations(workspace.workspaceId);
+  };
 
-    setInstallations((prev) => [...prev, newInst]);
-    console.log(`[LEDGER_SYS] Instance deployed successfully: ${newInst.id}`);
+  const handleUpdateInstallation = async (installation: Installation, status: Exclude<InstallationStatus, 'uninstalled'>) => {
+    if (!workspace) {
+      return;
+    }
+    setInstallationError(null);
+    try {
+      await nekiroClient.updateInstallation(workspace.workspaceId, installation.installationId, status);
+      await loadInstallations(workspace.workspaceId);
+    } catch (error) {
+      setInstallationError(toPlatformErrorView(error, 'Unable to update Installation.'));
+    }
+  };
+
+  const handleUninstall = async (installation: Installation) => {
+    if (!workspace) {
+      return;
+    }
+    setInstallationError(null);
+    try {
+      await nekiroClient.uninstallAgent(workspace.workspaceId, installation.installationId);
+      await loadInstallations(workspace.workspaceId);
+    } catch (error) {
+      setInstallationError(toPlatformErrorView(error, 'Unable to uninstall Agent.'));
+    }
+  };
+
+  const getSearchPlaceholder = () => {
+    switch (activeTab) {
+      case 'registry':
+        return 'Search agent name, description, capability...';
+      case 'installations':
+        return 'Search installation id, agent id, pinned version...';
+      case 'invocations':
+        return 'Invoke runtime is backend-gated in this MVP...';
+      case 'ledger':
+        return 'Ledger runtime is backend-gated in this MVP...';
+    }
   };
 
   return (
     <div className="bg-brand-bg text-brand-on-surface font-sans h-screen w-screen overflow-hidden flex select-none relative">
-      {/* Animated Flowing Mesh Blobs */}
       <div className="mesh-bg-container">
-        <div className="mesh-blob blob1"></div>
-        <div className="mesh-blob blob2"></div>
-        <div className="mesh-blob blob3"></div>
-        <div className="mesh-blob blob4"></div>
+        <div className="mesh-blob blob1" />
+        <div className="mesh-blob blob2" />
+        <div className="mesh-blob blob3" />
+        <div className="mesh-blob blob4" />
       </div>
 
-      {/* 1. Left Sidebar Navigation Panel */}
-      <Sidebar 
-        activeTab={activeTab} 
+      <Sidebar
+        activeTab={activeTab}
         setActiveTab={(tab) => {
           setActiveTab(tab);
-          setSearchQuery(''); // reset search queries
-        }} 
+          setSearchQuery('');
+        }}
         onOpenSettings={() => setShowSettings(true)}
         onOpenSupport={() => setShowSupport(true)}
       />
 
-      {/* 2. Top Navigation & Action Controls Bar */}
-      <Header 
-        searchQuery={searchQuery} 
-        setSearchQuery={setSearchQuery} 
+      <Header
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
         searchPlaceholder={getSearchPlaceholder()}
+        workspace={workspace}
+        workspaceDraft={workspaceDraft}
+        setWorkspaceDraft={setWorkspaceDraft}
+        workspaceLoading={workspaceLoading}
+        workspaceError={workspaceError}
+        onReadWorkspace={handleReadWorkspace}
+        onCreateWorkspace={handleCreateWorkspace}
+        userLabel={import.meta.env.VITE_NEKIRO_OWNER_NAME || import.meta.env.VITE_NEKIRO_OWNER_ID || 'Bearer principal'}
+        apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL)}
       />
 
-      {/* 3. Main Fluid Workspace View */}
       <main className="ml-60 mt-12 w-[calc(100vw-240px)] h-[calc(100vh-48px)] overflow-y-auto bg-brand-bg p-6 relative">
         <AnimatePresence mode="wait" initial={false}>
           {activeTab === 'registry' && (
-            <motion.div
-              key="registry"
-              initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="w-full h-full"
-            >
-              <RegistryTab 
-                agents={agents} 
-                onRegisterAgent={handleRegisterAgent} 
+            <motion.div key="registry" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+              <RegistryTab
+                agents={agents}
+                onRegisterAgent={handleRegisterAgent}
                 onPublishAgent={handlePublishAgent}
                 onDisableAgent={handleDisableAgent}
+                onOpenInstall={handleOpenInstall}
                 catalogLoading={catalogLoading}
                 catalogError={catalogError}
                 defaultOwnerId={import.meta.env.VITE_NEKIRO_OWNER_ID ?? ''}
@@ -190,176 +250,79 @@ export default function App() {
           )}
 
           {activeTab === 'installations' && (
-            <motion.div
-              key="installations"
-              initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="w-full h-full"
-            >
-              <InstallationsTab 
-                installations={installations} 
-                onToggleState={handleToggleState} 
-                onUninstall={handleUninstall} 
-                onAddInstallation={handleAddInstallation}
+            <motion.div key="installations" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+              <InstallationsTab
+                workspace={workspace}
                 agents={agents}
+                installations={installations}
+                loading={installationLoading}
+                error={installationError}
                 searchQuery={searchQuery}
+                preselectedAgentId={pendingInstallAgentId}
+                onInstallAgent={handleInstallAgent}
+                onUpdateInstallation={handleUpdateInstallation}
+                onUninstall={handleUninstall}
+                onRefresh={() => void loadInstallations()}
               />
             </motion.div>
           )}
 
           {activeTab === 'invocations' && (
-            <motion.div
-              key="invocations"
-              initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="w-full h-full"
-            >
-              <InvocationsTab 
-                installations={installations}
-              />
+            <motion.div key="invocations" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+              <InvocationsTab workspace={workspace} />
             </motion.div>
           )}
 
           {activeTab === 'ledger' && (
-            <motion.div
-              key="ledger"
-              initial={{ opacity: 0, y: 10, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -10, filter: "blur(4px)" }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="w-full h-full"
-            >
-              <LedgerTab />
+            <motion.div key="ledger" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+              <LedgerTab workspace={workspace} />
             </motion.div>
           )}
         </AnimatePresence>
       </main>
 
-      {/* Settings Modal Drawer */}
       {showSettings && (
-        <div className="fixed inset-0 z-50 bg-brand-lowest/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-brand-container border border-brand-outline-variant rounded shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-4 bg-brand-low border-b border-brand-outline-variant flex justify-between items-center">
-              <h3 className="font-headline-md text-sm font-bold text-brand-on-surface flex items-center gap-2">
-                <Cpu size={16} className="text-brand-primary" />
-                Infrastructure Settings
-              </h3>
-              <button onClick={() => setShowSettings(false)} className="text-brand-on-surface-variant hover:text-brand-on-surface">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="p-5 space-y-5">
-              <div className="flex flex-col gap-1.5">
-                <label className="font-label-caps text-[9px] text-brand-on-surface-variant uppercase tracking-wider">
-                  TELEMETRY REFRESH INTERVAL
-                </label>
-                <select 
-                  value={scanInterval}
-                  onChange={(e) => setScanInterval(e.target.value)}
-                  className="bg-brand-lowest border border-brand-outline-variant rounded text-brand-on-surface text-xs h-8 px-2.5 font-mono-code cursor-pointer outline-none focus:border-brand-primary"
-                >
-                  <option value="250ms">250ms (Real-time Turbo)</option>
-                  <option value="500ms">500ms (Standard Sync)</option>
-                  <option value="1000ms">1000ms (Low Bandwidth)</option>
-                </select>
-              </div>
-
-              <div className="flex items-center justify-between border-t border-brand-outline-variant/30 pt-4">
-                <div>
-                  <span className="font-mono-code text-xs text-brand-on-surface font-semibold block">Enable Ledger Telemetry Logs</span>
-                  <span className="text-[10px] text-brand-on-surface-variant">Stream active execution traces to timeline ledger.</span>
-                </div>
-                <button
-                  onClick={() => setEnableTelemetry(!enableTelemetry)}
-                  className={`w-8 h-4 rounded-full relative border transition-colors cursor-pointer ${
-                    enableTelemetry ? 'bg-brand-primary/20 border-brand-primary' : 'bg-brand-outline-variant/20 border-brand-outline-variant'
-                  }`}
-                >
-                  <span className={`w-2.5 h-2.5 rounded-full absolute top-0.5 transition-all ${
-                    enableTelemetry ? 'bg-brand-primary right-0.5' : 'bg-brand-outline-variant left-0.5'
-                  }`} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between border-t border-brand-outline-variant/30 pt-4">
-                <div>
-                  <span className="font-mono-code text-xs text-brand-on-surface font-semibold block">Secure Core Sandbox Mode</span>
-                  <span className="text-[10px] text-brand-on-surface-variant">Enable strict RBAC checks on unauthenticated network gates.</span>
-                </div>
-                <button
-                  onClick={() => setSecureSandbox(!secureSandbox)}
-                  className={`w-8 h-4 rounded-full relative border transition-colors cursor-pointer ${
-                    secureSandbox ? 'bg-brand-primary/20 border-brand-primary' : 'bg-brand-outline-variant/20 border-brand-outline-variant'
-                  }`}
-                >
-                  <span className={`w-2.5 h-2.5 rounded-full absolute top-0.5 transition-all ${
-                    secureSandbox ? 'bg-brand-primary right-0.5' : 'bg-brand-outline-variant left-0.5'
-                  }`} />
-                </button>
-              </div>
-            </div>
-            <div className="p-4 bg-brand-lowest border-t border-brand-outline-variant flex justify-end">
-              <button 
-                onClick={() => setShowSettings(false)}
-                className="h-8 px-5 bg-brand-primary text-brand-on-primary font-mono-label text-[10px] font-bold rounded hover:bg-brand-primary/90 transition-colors shadow-lg cursor-pointer"
-              >
-                APPLY CHANGES
-              </button>
-            </div>
+        <Overlay title="Control Plane Settings" icon={<Cpu size={22} />} onClose={() => setShowSettings(false)}>
+          <div className="space-y-3 text-sm text-brand-on-surface-variant">
+            <p>Base URL: <span className="font-mono-code text-brand-on-surface">{import.meta.env.VITE_NEKIRO_API_BASE_URL || 'not configured'}</span></p>
+            <p>Token source: <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_TOKEN</span> (never persisted in local storage)</p>
+            <p>Default Workspace: <span className="font-mono-code text-brand-on-surface">{import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID || 'manual selection'}</span></p>
           </div>
-        </div>
+        </Overlay>
       )}
 
-      {/* Support Modal FAQ */}
       {showSupport && (
-        <div className="fixed inset-0 z-50 bg-brand-lowest/85 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-brand-container border border-brand-outline-variant rounded shadow-2xl overflow-hidden flex flex-col">
-            <div className="p-4 bg-brand-low border-b border-brand-outline-variant flex justify-between items-center">
-              <h3 className="font-headline-md text-sm font-bold text-brand-on-surface flex items-center gap-2">
-                <HelpCircle size={16} className="text-brand-primary" />
-                NeKiro Console - Support & Core FAQ
-              </h3>
-              <button onClick={() => setShowSupport(false)} className="text-brand-on-surface-variant hover:text-brand-on-surface">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-              <div className="space-y-1">
-                <h4 className="text-xs font-bold text-brand-on-surface font-mono-code">Q: What is the NeKiro Phase 1 Console?</h4>
-                <p className="text-[11px] text-brand-on-surface-variant leading-relaxed">
-                  NeKiro Phase 1 is a cloud-native substrate orchestrator built for high-stakes telemetry monitoring, sandbox containers execution, and consensus blockchain traces ledger.
-                </p>
-              </div>
-
-              <div className="space-y-1 border-t border-brand-outline-variant/30 pt-3">
-                <h4 className="text-xs font-bold text-brand-on-surface font-mono-code">Q: How do I test the Invocation Workbench?</h4>
-                <p className="text-[11px] text-brand-on-surface-variant leading-relaxed">
-                  Head over to the <span className="text-brand-primary font-semibold">Invocations</span> tab, select an enabled agent, customize metric types or start/end bounds, and click <span className="text-brand-primary font-semibold">Invoke</span>. The live telemetry streams, payloads, and execution channels will render incrementally. Try typing &quot;error&quot; in the Metric Type to trigger a simulated exception.
-                </p>
-              </div>
-
-              <div className="space-y-1 border-t border-brand-outline-brand/30 pt-3">
-                <h4 className="text-xs font-bold text-brand-on-surface font-mono-code">Q: How do I deploy new agents?</h4>
-                <p className="text-[11px] text-brand-on-surface-variant leading-relaxed">
-                  Use the <span className="text-brand-primary font-semibold">Registry</span> tab, click &quot;Agent Card Registration&quot;, fill the capabilities workbench parameters, valid JSON schema, and complete registration. Then go to <span className="text-brand-primary font-semibold">Installations</span>, click &quot;New Installation&quot;, select your registered agent, and deploy immediately!
-                </p>
-              </div>
-            </div>
-            <div className="p-4 bg-brand-lowest border-t border-brand-outline-variant flex justify-end">
-              <button 
-                onClick={() => setShowSupport(false)}
-                className="h-8 px-5 rounded bg-brand-primary text-brand-on-primary font-mono-label text-[10px] font-bold hover:bg-brand-primary/90 transition-colors cursor-pointer"
-              >
-                DISMISS
-              </button>
-            </div>
+        <Overlay title="MVP Boundary" icon={<HelpCircle size={22} />} onClose={() => setShowSupport(false)}>
+          <div className="space-y-3 text-sm text-brand-on-surface-variant">
+            <p>Live surfaces: Registry, Workspace, and Installations through the public /v3 Northbound API.</p>
+            <p>Gated surfaces: Invocation Dispatch, A2A Router, and Ledger until the backend Invoke -&gt; Record path is delivered.</p>
           </div>
-        </div>
+        </Overlay>
       )}
+    </div>
+  );
+}
+
+function Overlay({title, icon, children, onClose}: {title: string; icon: React.ReactNode; children: React.ReactNode; onClose: () => void}) {
+  return (
+    <div className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+      <div className="bg-brand-low border border-brand-outline-variant rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-brand-outline-variant/60">
+          <div className="flex items-center gap-3 text-brand-primary">
+            {icon}
+            <h2 className="font-headline-md text-sm font-bold text-brand-on-surface">{title}</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-brand-high text-brand-on-surface-variant hover:text-brand-on-surface">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+        <div className="px-5 py-3 border-t border-brand-outline-variant/40 flex items-center gap-2 text-xs text-brand-on-surface-variant">
+          <ShieldAlert size={14} />
+          <span>Only public Gateway routes are called from the browser.</span>
+          <CheckCircle2 size={14} className="ml-auto text-green-400" />
+        </div>
+      </div>
     </div>
   );
 }

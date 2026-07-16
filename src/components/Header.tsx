@@ -1,62 +1,99 @@
 import React from 'react';
-import { Search, Radio, Bell, User } from 'lucide-react';
+import {AlertTriangle, CheckCircle2, Database, Plus, Search, User} from 'lucide-react';
+
+import type {PlatformErrorView, Workspace} from '../types';
 
 interface HeaderProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   searchPlaceholder?: string;
+  workspace: Workspace | null;
+  workspaceDraft: string;
+  setWorkspaceDraft: (workspaceId: string) => void;
+  workspaceLoading: boolean;
+  workspaceError: PlatformErrorView | null;
+  onReadWorkspace: () => void;
+  onCreateWorkspace: () => void;
+  userLabel: string;
+  apiConfigured: boolean;
 }
 
-export default function Header({ searchQuery, setSearchQuery, searchPlaceholder = "Search resource, agent, traces..." }: HeaderProps) {
+export default function Header({
+  searchQuery,
+  setSearchQuery,
+  searchPlaceholder = 'Search resource, agent, traces...',
+  workspace,
+  workspaceDraft,
+  setWorkspaceDraft,
+  workspaceLoading,
+  workspaceError,
+  onReadWorkspace,
+  onCreateWorkspace,
+  userLabel,
+  apiConfigured,
+}: HeaderProps) {
   return (
     <header className="fixed top-0 right-0 left-60 z-40 flex justify-between items-center px-6 bg-brand-bg/80 backdrop-blur-md border-b border-brand-outline-variant h-12">
-      {/* Search Bar Container */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 min-w-0">
         <div className="relative flex items-center bg-brand-container border border-brand-outline-variant/60 rounded px-2.5 py-1 h-8 transition-colors focus-within:border-brand-primary/50">
           <Search size={14} className="text-brand-on-surface-variant mr-2" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(event) => setSearchQuery(event.target.value)}
             placeholder={searchPlaceholder}
-            className="bg-transparent border-none outline-none text-brand-on-surface font-mono-code text-[11px] w-64 p-0 m-0 placeholder-brand-on-surface-variant/40 focus:ring-0"
+            className="bg-transparent border-none outline-none text-brand-on-surface font-mono-code text-[11px] w-72 p-0 m-0 placeholder-brand-on-surface-variant/40 focus:ring-0"
           />
+        </div>
+
+        <div className="flex items-center gap-2 bg-brand-container border border-brand-outline-variant/60 rounded h-8 px-2">
+          <Database size={13} className={workspace ? 'text-green-400' : 'text-brand-on-surface-variant'} />
+          <input
+            value={workspaceDraft}
+            onChange={(event) => setWorkspaceDraft(event.target.value)}
+            placeholder="workspace id"
+            className="bg-transparent outline-none text-[10.5px] font-mono-code text-brand-on-surface w-40 placeholder-brand-on-surface-variant/40"
+          />
+          <button
+            onClick={onReadWorkspace}
+            disabled={workspaceLoading || !workspaceDraft.trim()}
+            className="text-[9.5px] px-2 py-0.5 rounded bg-brand-high text-brand-on-surface-variant hover:text-brand-on-surface disabled:opacity-40"
+          >
+            Load
+          </button>
+          <button
+            onClick={onCreateWorkspace}
+            disabled={workspaceLoading || !workspaceDraft.trim()}
+            className="text-[9.5px] px-2 py-0.5 rounded bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30 disabled:opacity-40 flex items-center gap-1"
+          >
+            <Plus size={10} />
+            Create
+          </button>
         </div>
       </div>
 
-      {/* Right Side Status & User Widgets */}
-      <div className="flex items-center gap-5">
+      <div className="flex items-center gap-4">
+        {workspaceError && (
+          <div className="hidden xl:flex items-center gap-1.5 text-[10px] font-mono-code text-brand-error border border-brand-error/25 bg-brand-error-container/10 rounded px-2 py-1 max-w-md truncate" title={workspaceError.message}>
+            <AlertTriangle size={12} />
+            <span>{workspaceError.code ?? 'WORKSPACE_ERROR'}</span>
+            {workspaceError.traceId && <span className="text-brand-on-surface-variant">trace {workspaceError.traceId}</span>}
+          </div>
+        )}
+
         <div className="flex items-center gap-3 font-mono-label text-[10px]">
-          <span className="px-2.5 py-1 bg-brand-container rounded border border-brand-outline-variant/50 text-brand-on-surface-variant transition-colors hover:text-brand-primary cursor-pointer">
-            Workspace: NK-0814
+          <span className="px-2.5 py-1 bg-brand-container rounded border border-brand-outline-variant/50 text-brand-on-surface-variant flex items-center gap-1.5">
+            <span className={'w-1.5 h-1.5 rounded-full inline-block ' + (apiConfigured ? 'bg-green-400' : 'bg-brand-error')} />
+            API: {apiConfigured ? 'configured' : 'missing'}
           </span>
-          <span className="w-px h-3 bg-brand-outline-variant/50"></span>
-          <span className="px-2.5 py-1 bg-brand-container rounded border border-brand-outline-variant/50 text-brand-on-surface-variant flex items-center gap-1.5 transition-all duration-200 hover:text-brand-primary cursor-pointer">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand-primary animate-pulse inline-block"></span>
-            User: SystemAdmin
+          <span className="px-2.5 py-1 bg-brand-container rounded border border-brand-outline-variant/50 text-brand-on-surface-variant">
+            Workspace: {workspace?.workspaceId ?? 'not selected'}
           </span>
-        </div>
-
-        {/* System Utility Controls */}
-        <div className="flex items-center gap-2.5 border-l border-brand-outline-variant/40 pl-4 text-brand-on-surface-variant">
-          <button className="hover:text-brand-primary hover:bg-brand-container p-1 rounded transition-colors duration-150 relative group" title="Workspace Sensors">
-            <Radio size={16} />
-            <span className="absolute bottom-[-24px] left-1/2 -translate-x-1/2 bg-brand-high text-brand-on-surface text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-              Sensors Live
-            </span>
-          </button>
-          
-          <button className="hover:text-brand-primary hover:bg-brand-container p-1 rounded transition-colors duration-150 relative group" title="System Alerts">
-            <Bell size={16} />
-            <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-brand-error rounded-full border border-brand-bg"></span>
-            <span className="absolute bottom-[-24px] left-1/2 -translate-x-1/2 bg-brand-high text-brand-on-surface text-[9px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
-              Alerts (1)
-            </span>
-          </button>
-
-          <button className="hover:text-brand-primary hover:bg-brand-container p-1 rounded transition-colors duration-150 relative group" title="User Profile">
-            <User size={16} />
-          </button>
+          <span className="px-2.5 py-1 bg-brand-container rounded border border-brand-outline-variant/50 text-brand-on-surface-variant flex items-center gap-1.5">
+            <User size={12} />
+            {userLabel}
+          </span>
+          {workspace && <CheckCircle2 size={15} className="text-green-400" />}
         </div>
       </div>
     </header>

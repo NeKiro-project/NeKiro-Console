@@ -20,6 +20,7 @@ const limits = {
 test('buildAgentCard converts registration fields into an Agent Card v0.2 payload', () => {
   const card = buildAgentCard({
     agentId: 'runtime.echo',
+    name: 'Runtime Echo Agent',
     ownerId: 'team.platform',
     ownerDisplayName: 'Platform Team',
     description: 'Echoes structured input.',
@@ -43,7 +44,7 @@ test('buildAgentCard converts registration fields into an Agent Card v0.2 payloa
   assert.deepEqual(card, {
     schemaVersion: '0.2',
     agentId: 'runtime.echo',
-    name: 'runtime.echo',
+    name: 'Runtime Echo Agent',
     description: 'Echoes structured input.',
     owner: {id: 'team.platform', displayName: 'Platform Team'},
     version: '1.0.0',
@@ -62,7 +63,7 @@ test('buildAgentCard converts registration fields into an Agent Card v0.2 payloa
   });
 });
 
-test('buildAgentCard rejects malformed or duplicate capabilities', () => {
+test('buildAgentCard rejects duplicate capabilities and undeclared required permissions', () => {
   assert.throws(
     () => buildAgentCard({
       agentId: 'runtime.echo',
@@ -78,9 +79,25 @@ test('buildAgentCard rejects malformed or duplicate capabilities', () => {
     }),
     /duplicate capability id/i,
   );
+
+  assert.throws(
+    () => buildAgentCard({
+      agentId: 'runtime.echo',
+      ownerId: 'team.platform',
+      ownerDisplayName: 'Platform Team',
+      description: 'Echoes structured input.',
+      version: '1.0.0',
+      endpoint: 'http://127.0.0.1:9000/a2a',
+      authentication: 'none',
+      permissions: [],
+      capabilitiesJson: JSON.stringify({capabilities: [{id: 'runtime.echo', requiredPermissions: ['READ_LOGS']}]}),
+      limits,
+    }),
+    /not declared/i,
+  );
 });
 
-test('mapCatalogEntry maps disabled Catalog entries to the existing Agent view model', () => {
+test('mapCatalogEntry maps Catalog entries to the Console view model without deprecated state', () => {
   const card: AgentCardV02 = {
     schemaVersion: '0.2',
     agentId: 'runtime.disabled',
@@ -90,25 +107,11 @@ test('mapCatalogEntry maps disabled Catalog entries to the existing Agent view m
     version: '2.0.0',
     protocol: {type: 'a2a', version: '0.3.0', transport: 'JSONRPC', endpoint: 'http://127.0.0.1:9000/a2a'},
     skills: [
-      {
-        id: 'runtime.echo',
-        name: 'Echo',
-        description: 'Echoes input.',
-        inputSchema: {type: 'object'},
-        outputSchema: {type: 'object'},
-        requiredPermissions: [],
-      },
-      {
-        id: 'runtime.inspect',
-        name: 'Inspect',
-        description: 'Inspects input.',
-        inputSchema: {type: 'object'},
-        outputSchema: {type: 'object'},
-        requiredPermissions: [],
-      },
+      {id: 'runtime.echo', name: 'Echo', description: 'Echoes input.', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: []},
+      {id: 'runtime.inspect', name: 'Inspect', description: 'Inspects input.', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: []},
     ],
     authentication: {type: 'none'},
-    permissions: [],
+    permissions: [{id: 'READ_LOGS', description: 'Read logs.'}],
     limits,
   };
   const entry: CatalogEntry = {
@@ -121,12 +124,15 @@ test('mapCatalogEntry maps disabled Catalog entries to the existing Agent view m
 
   assert.equal(agent.id, 'runtime.disabled');
   assert.equal(agent.owner, 'Platform Team');
+  assert.equal(agent.ownerId, 'team.platform');
+  assert.equal(agent.version, '2.0.0');
   assert.equal(agent.status, 'disabled');
   assert.deepEqual(agent.tags, ['runtime.echo', 'runtime.inspect']);
+  assert.deepEqual(agent.permissions, [{id: 'READ_LOGS', description: 'Read logs.'}]);
   assert.equal(JSON.parse(agent.schema).agentId, 'runtime.disabled');
 });
 
-test('NekiroApiClient sends Catalog search requests with auth and decodes platform errors', async () => {
+test('NekiroApiClient sends v3 Catalog search requests with auth and decodes platform errors', async () => {
   const requests: Array<{url: string; init?: RequestInit}> = [];
   const client = new NekiroApiClient({
     baseUrl: 'https://api.example.test/',
@@ -155,8 +161,23 @@ test('NekiroApiClient sends Catalog search requests with auth and decodes platfo
     },
   );
 
-  assert.equal(requests[0]?.url, 'https://api.example.test/v2/agents?query=echo');
+  assert.equal(requests[0]?.url, 'https://api.example.test/v3/agents?query=echo');
   const headers = new Headers(requests[0]?.init?.headers);
   assert.equal(headers.get('Accept'), 'application/json');
   assert.equal(headers.get('Authorization'), 'Bearer test-token');
+});
+
+test('NekiroApiClient covers Workspace and Installation v3 paths', async () => {
+  const requests: Array<{url: string; init?: RequestInit}> = [];
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    fetchImpl: async (input, init) => {
+      requests.push({url: String(input), init});
+      return new Response(JSON.stringify({items: []}), {status: 200});
+    },
+  });
+
+  await client.listInstallations('workspace.alpha', {limit: 50, cursor: 'next'});
+
+  assert.equal(requests[0]?.url, 'https://api.example.test/v3/workspaces/workspace.alpha/installations?limit=50&cursor=next');
 });
