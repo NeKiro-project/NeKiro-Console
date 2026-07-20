@@ -1,0 +1,16 @@
+schema_version: 1
+module_path: ""
+title: NeKiro Console 前端工程根 (React + Vite)
+scope:
+    - README.md
+    - .gitignore
+    - index.html
+    - metadata.json
+    - package.json
+    - tsconfig.json
+    - vite.config.ts
+    - .env.example
+    - LICENSE
+source_files: []
+depends_on: []
+related_to: []

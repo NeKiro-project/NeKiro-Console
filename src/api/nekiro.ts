@@ -140,7 +140,7 @@ export class NekiroApiClient {
   constructor(options: NekiroApiClientOptions) {
     this.baseUrl = options.baseUrl.trim().replace(/\/+$/, '');
     this.token = options.token?.trim() ?? '';
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
   }
 
   searchAgents(params: CatalogSearchParams = {}): Promise<CatalogSearchResponse> {

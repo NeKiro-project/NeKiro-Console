@@ -15,6 +15,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'registry' | 'installations' | 'invocations' | 'ledger'>('registry');
   const [searchQuery, setSearchQuery] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [draftAgents, setDraftAgents] = useState<Agent[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<PlatformErrorView | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -125,12 +126,16 @@ export default function App() {
   };
 
   const handleRegisterAgent = async (card: AgentCardV02) => {
-    await nekiroClient.registerAgent(card);
+    const entry = await nekiroClient.registerAgent(card);
+    const draftAgent = mapCatalogEntry(entry);
+    setDraftAgents((current) => upsertAgent(current, draftAgent));
     await loadAgents(searchQuery);
+    return draftAgent;
   };
 
   const handlePublishAgent = async (agent: Agent) => {
     await nekiroClient.publishAgentVersion(agent.id, agent.version);
+    setDraftAgents((current) => current.filter((draft) => agentKey(draft) !== agentKey(agent)));
     await loadAgents(searchQuery);
   };
 
@@ -236,6 +241,7 @@ export default function App() {
             <motion.div key="registry" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
               <RegistryTab
                 agents={agents}
+                draftAgents={draftAgents}
                 onRegisterAgent={handleRegisterAgent}
                 onPublishAgent={handlePublishAgent}
                 onDisableAgent={handleDisableAgent}
@@ -325,4 +331,12 @@ function Overlay({title, icon, children, onClose}: {title: string; icon: React.R
       </div>
     </div>
   );
+}
+
+function upsertAgent(agents: Agent[], next: Agent): Agent[] {
+  return [next, ...agents.filter((agent) => agentKey(agent) !== agentKey(next))];
+}
+
+function agentKey(agent: Agent): string {
+  return agent.id + '@' + agent.version;
 }

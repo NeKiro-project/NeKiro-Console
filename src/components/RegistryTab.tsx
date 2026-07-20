@@ -6,7 +6,8 @@ import type {Agent, PlatformErrorView} from '../types';
 
 interface RegistryTabProps {
   agents: Agent[];
-  onRegisterAgent: (card: AgentCardV02) => Promise<void>;
+  draftAgents: Agent[];
+  onRegisterAgent: (card: AgentCardV02) => Promise<Agent>;
   onPublishAgent: (agent: Agent) => Promise<void>;
   onDisableAgent: (agent: Agent) => Promise<void>;
   onOpenInstall: (agent: Agent) => void;
@@ -33,6 +34,7 @@ const defaultCapabilities = JSON.stringify({
 export default function RegistryTab(props: RegistryTabProps) {
   const {
     agents,
+    draftAgents,
     onRegisterAgent,
     onPublishAgent,
     onDisableAgent,
@@ -44,7 +46,7 @@ export default function RegistryTab(props: RegistryTabProps) {
     searchQuery,
   } = props;
   const [showForm, setShowForm] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedAgentKey, setSelectedAgentKey] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<PlatformErrorView | null>(null);
   const [agentId, setAgentId] = useState('runtime.echo');
@@ -58,11 +60,17 @@ export default function RegistryTab(props: RegistryTabProps) {
   const [permissionsText, setPermissionsText] = useState('');
   const [capabilitiesJson, setCapabilitiesJson] = useState(defaultCapabilities);
 
-  const selectedAgent = useMemo(() => agents.find((agent) => agent.id === selectedAgentId) ?? agents[0], [agents, selectedAgentId]);
-  const filteredAgents = useMemo(() => {
+  const allAgents = useMemo(() => [...draftAgents, ...agents], [agents, draftAgents]);
+  const selectedAgent = useMemo(() => allAgents.find((agent) => agentKey(agent) === selectedAgentKey) ?? allAgents[0], [allAgents, selectedAgentKey]);
+  const filteredDraftAgents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return draftAgents;
+    return draftAgents.filter((agent) => matchesAgentQuery(agent, query));
+  }, [draftAgents, searchQuery]);
+  const filteredPublishedAgents = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return agents;
-    return agents.filter((agent) => [agent.id, agent.name, agent.owner, agent.ownerId, agent.description, agent.version, agent.status, agent.tags.join(' ')].join(' ').toLowerCase().includes(query));
+    return agents.filter((agent) => matchesAgentQuery(agent, query));
   }, [agents, searchQuery]);
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -83,9 +91,9 @@ export default function RegistryTab(props: RegistryTabProps) {
         capabilitiesJson,
         limits: {timeoutMs: 30000, maxInputBytes: 1048576, maxOutputBytes: 1048576, streaming: true},
       });
-      await onRegisterAgent(card);
+      const registeredAgent = await onRegisterAgent(card);
       setShowForm(false);
-      setSelectedAgentId(card.agentId);
+      setSelectedAgentKey(agentKey(registeredAgent));
     } catch (error) {
       setLocalError(toPlatformErrorView(error, 'Unable to register Agent Card.'));
     } finally {
@@ -147,27 +155,26 @@ export default function RegistryTab(props: RegistryTabProps) {
       <div className="grid grid-cols-[minmax(360px,0.95fr)_minmax(420px,1.05fr)] gap-5 min-h-0 flex-1">
         <div className="bg-brand-low border border-brand-outline-variant rounded-xl overflow-hidden min-h-0 flex flex-col">
           <div className="px-4 py-3 border-b border-brand-outline-variant/60 flex items-center justify-between">
-            <span className="text-xs font-bold text-brand-on-surface">Catalog results</span>
+            <span className="text-xs font-bold text-brand-on-surface">Registry results</span>
             {catalogLoading && <Loader2 size={14} className="animate-spin text-brand-primary" />}
           </div>
-          <div className="overflow-y-auto divide-y divide-brand-outline-variant/40">
-            {filteredAgents.length === 0 ? (
-              <div className="p-8 text-center text-sm text-brand-on-surface-variant">No server Catalog entries returned. This is an empty result, not a mock fallback.</div>
-            ) : filteredAgents.map((agent) => (
-              <button key={agent.id + agent.version} onClick={() => setSelectedAgentId(agent.id)} className={'w-full text-left p-4 hover:bg-brand-container transition-colors ' + (selectedAgent?.id === agent.id ? 'bg-brand-primary-container/20' : '')}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-brand-on-surface">{agent.name}</div>
-                    <div className="font-mono-code text-[11px] text-brand-on-surface-variant mt-1">{agent.id} @ {agent.version}</div>
-                  </div>
-                  <StatusBadge status={agent.status} />
-                </div>
-                <p className="text-xs text-brand-on-surface-variant mt-2 line-clamp-2">{agent.description}</p>
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {agent.tags.map((tag) => <span key={tag} className="text-[10px] px-2 py-0.5 rounded bg-brand-container border border-brand-outline-variant text-brand-secondary">{tag}</span>)}
-                </div>
-              </button>
-            ))}
+          <div className="overflow-y-auto">
+            <AgentListSection
+              title="My drafts"
+              description="Server-returned drafts from this browser session. Publish one to make it discoverable."
+              agents={filteredDraftAgents}
+              emptyMessage="No draft Agent Cards in this session. Submit draft to stage one for publishing."
+              selectedAgent={selectedAgent}
+              onSelect={(agent) => setSelectedAgentKey(agentKey(agent))}
+            />
+            <AgentListSection
+              title="Published catalog"
+              description="Live discovery only returns published Agent Card versions from the Control Plane."
+              agents={filteredPublishedAgents}
+              emptyMessage="No published Catalog entries returned. This is an empty result, not a mock fallback."
+              selectedAgent={selectedAgent}
+              onSelect={(agent) => setSelectedAgentKey(agentKey(agent))}
+            />
           </div>
         </div>
 
@@ -224,6 +231,73 @@ function parsePermissions(value: string) {
     const [id, ...rest] = line.split(':');
     return {id: id.trim(), description: rest.join(':').trim() || id.trim()};
   });
+}
+
+function AgentListSection({
+  title,
+  description,
+  agents,
+  emptyMessage,
+  selectedAgent,
+  onSelect,
+}: {
+  title: string;
+  description: string;
+  agents: Agent[];
+  emptyMessage: string;
+  selectedAgent?: Agent;
+  onSelect: (agent: Agent) => void;
+}) {
+  return (
+    <section className="border-b border-brand-outline-variant/60 last:border-b-0">
+      <div className="px-4 py-3 bg-brand-lowest/40 border-b border-brand-outline-variant/40">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-brand-on-surface">{title}</span>
+          <span className="font-mono-code text-[10px] text-brand-on-surface-variant">{agents.length}</span>
+        </div>
+        <p className="text-[11px] text-brand-on-surface-variant mt-1">{description}</p>
+      </div>
+      <div className="divide-y divide-brand-outline-variant/40">
+        {agents.length === 0 ? (
+          <div className="p-6 text-center text-sm text-brand-on-surface-variant">{emptyMessage}</div>
+        ) : agents.map((agent) => (
+          <div key={agentKey(agent)}>
+            <AgentRow
+              agent={agent}
+              selected={selectedAgent ? agentKey(selectedAgent) === agentKey(agent) : false}
+              onSelect={onSelect}
+            />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AgentRow({agent, selected, onSelect}: {agent: Agent; selected: boolean; onSelect: (agent: Agent) => void}) {
+  return (
+    <button onClick={() => onSelect(agent)} className={'w-full text-left p-4 hover:bg-brand-container transition-colors ' + (selected ? 'bg-brand-primary-container/20' : '')}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-semibold text-brand-on-surface">{agent.name}</div>
+          <div className="font-mono-code text-[11px] text-brand-on-surface-variant mt-1">{agent.id} @ {agent.version}</div>
+        </div>
+        <StatusBadge status={agent.status} />
+      </div>
+      <p className="text-xs text-brand-on-surface-variant mt-2 line-clamp-2">{agent.description}</p>
+      <div className="flex flex-wrap gap-1.5 mt-3">
+        {agent.tags.map((tag) => <span key={tag} className="text-[10px] px-2 py-0.5 rounded bg-brand-container border border-brand-outline-variant text-brand-secondary">{tag}</span>)}
+      </div>
+    </button>
+  );
+}
+
+function matchesAgentQuery(agent: Agent, query: string): boolean {
+  return [agent.id, agent.name, agent.owner, agent.ownerId, agent.description, agent.version, agent.status, agent.tags.join(' ')].join(' ').toLowerCase().includes(query);
+}
+
+function agentKey(agent: Agent): string {
+  return agent.id + '@' + agent.version;
 }
 
 function Field({label, value, onChange}: {label: string; value: string; onChange: (value: string) => void}) {
