@@ -63,7 +63,7 @@ export default function InvocationsTab({workspace, installations, client}: Invoc
         <h2 className="text-2xl font-bold text-brand-on-surface">Invoke an installed Agent</h2>
         <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Requests use Gateway v4. JSON and SSE responses are validated for correlation and terminal semantics before display.</p>
       </div>
-      <div className="grid grid-cols-[minmax(340px,0.85fr)_minmax(420px,1.15fr)] gap-5 flex-1 min-h-0">
+      <div className="glass-split-grid grid grid-cols-[minmax(340px,0.85fr)_minmax(420px,1.15fr)] gap-5 flex-1 min-h-0">
         <DispatchForm
           workspace={workspace}
           enabled={enabled}

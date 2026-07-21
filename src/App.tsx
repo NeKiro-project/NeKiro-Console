@@ -18,6 +18,7 @@ export default function App() {
   const [draftAgents, setDraftAgents] = useState<Agent[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<PlatformErrorView | null>(null);
+  const [catalogReady, setCatalogReady] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceDraft, setWorkspaceDraft] = useState(import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID ?? '');
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
@@ -43,6 +44,7 @@ export default function App() {
     try {
       const response = await nekiroClient.searchAgents(query.trim() ? {query: query.trim()} : undefined);
       setAgents(response.items.map(mapCatalogEntry));
+      setCatalogReady(true);
     } catch (error) {
       setCatalogError(toPlatformErrorView(error, 'Unable to load the NeKiro Catalog.'));
     } finally {
@@ -202,7 +204,7 @@ export default function App() {
   };
 
   return (
-    <div className="bg-brand-bg text-brand-on-surface font-sans h-screen w-screen overflow-hidden flex select-none relative">
+    <div className="glass-app bg-brand-bg text-brand-on-surface font-sans h-screen w-screen overflow-hidden flex select-none relative">
       <div className="mesh-bg-container">
         <div className="mesh-blob blob1" />
         <div className="mesh-blob blob2" />
@@ -235,7 +237,7 @@ export default function App() {
         apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL)}
       />
 
-      <main className="ml-60 mt-12 w-[calc(100vw-240px)] h-[calc(100vh-48px)] overflow-y-auto bg-brand-bg p-6 relative">
+      <main className="ml-64 mt-16 w-[calc(100vw-256px)] h-[calc(100vh-64px)] overflow-y-auto bg-brand-bg p-7 relative">
         <AnimatePresence mode="wait" initial={false}>
           {activeTab === 'registry' && (
             <motion.div key="registry" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
@@ -248,6 +250,7 @@ export default function App() {
                 onOpenInstall={handleOpenInstall}
                 catalogLoading={catalogLoading}
                 catalogError={catalogError}
+                catalogReady={catalogReady}
                 defaultOwnerId={import.meta.env.VITE_NEKIRO_OWNER_ID ?? ''}
                 defaultOwnerName={import.meta.env.VITE_NEKIRO_OWNER_NAME ?? ''}
                 searchQuery={searchQuery}

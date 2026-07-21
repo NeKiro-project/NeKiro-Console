@@ -41,7 +41,7 @@ export default function LedgerTab({workspace, client}: {workspace: Workspace | n
         <h2 className="text-2xl font-bold text-brand-on-surface">Inspect recorded lineage</h2>
         <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Reads are Workspace-scoped and Owner-authorized. Result payloads are never rendered from Ledger records.</p>
       </div>
-      <div className="grid grid-cols-[minmax(340px,0.8fr)_minmax(420px,1.2fr)] gap-5 flex-1 min-h-0">
+      <div className="glass-split-grid grid grid-cols-[minmax(340px,0.8fr)_minmax(420px,1.2fr)] gap-5 flex-1 min-h-0">
         <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-5 h-fit">
           <div className="flex items-center gap-2 text-sm font-bold mb-4"><Search size={16} className="text-brand-primary" /> Read metadata</div>
           <label className="block text-xs text-brand-on-surface-variant mb-1">Invocation ID</label>
