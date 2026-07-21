@@ -1,6 +1,5 @@
 {
   "name": "NeKiro Infrastructure Console",
-  "description": "A high-performance technical console for cloud infrastructure orchestrator and sandbox container agent deployments, featuring real-time stream simulation and interactive execution traces.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "description": "A React console for registering, discovering, installing, invoking, and inspecting NeKiro Agents through the public Gateway.",
+  "requestFramePermissions": []
 }

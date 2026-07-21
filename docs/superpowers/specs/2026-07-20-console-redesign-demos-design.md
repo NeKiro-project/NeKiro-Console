@@ -9,9 +9,8 @@ Produce three visual redesigns of the NeKiro Console as **navigable in-app demos
 
 ## Non-goals
 
-- No new backend integration (demos run on local mock data, no API calls).
-- No changes to existing `App.tsx` / `components/` production code.
-- Invocations / Ledger remain gated surfaces in every demo (styled placeholders only).
+- Demos do not call the backend; they remain local visual comparison artifacts.
+- Demos do not replace the production runtime integration in `App.tsx` / `components/`.
 
 ## Access & routing
 
@@ -59,7 +58,7 @@ Each demo renders the same realistic mock dataset (`src/demos/mockData.ts`):
 
 - 6 agents (mix of published / draft / disabled, varied permissions)
 - 1 workspace + 4 installations (enabled / disabled / uninstalled)
-- Registry view (primary, fully styled) + Installations view + styled gated placeholders for Invocations / Ledger
+- Registry view (primary, fully styled) + Installations view + styled runtime boundary views for Invocations / Ledger
 - working sidebar tab switch + client-side search filter
 
 ## Error handling / testing

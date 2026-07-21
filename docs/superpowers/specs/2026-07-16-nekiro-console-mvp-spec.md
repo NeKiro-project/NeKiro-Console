@@ -206,11 +206,14 @@ Installation v2 详情字段：
 
 ### 7.4 Invocations / Ledger
 
-MVP 中这两个页面不做真实运行时调用。页面必须明确说明：
+本节的原始 gated 决策已由 `2026-07-21-console-runtime-integration.md`
+取代。当前 Console 使用 Owner 授权的 Northbound v4：
 
-- Invocation Dispatch、A2A Router、Ledger 后端尚未在当前 Console 范围内接入。
-- 未来将使用 POST /v3/workspaces/{workspaceId}/invocations、GET /v3/invocations/{invocationId}、GET /v3/traces/{traceId}。
-- 当前不展示模拟 trace tree、模拟 timeout、模拟 ledger events，避免误导为平台事实。
+- `POST /v4/workspaces/{workspaceId}/invocations` 支持 JSON 和 SSE。
+- `GET /v4/workspaces/{workspaceId}/invocations/{invocationId}` 与
+  `GET /v4/workspaces/{workspaceId}/traces/{traceId}` 读取 metadata-only
+  Ledger 投影。
+- 客户端验证相关性、事件顺序和终态，不展示模拟 trace、timeout 或事件。
 
 ## 8. 错误、加载与空状态
 
@@ -274,7 +277,7 @@ MVP 中这两个页面不做真实运行时调用。页面必须明确说明：
 | T004 | Workspace 状态模型 | 在 App 层集中管理 currentWorkspace、loading、error | F003-F006 | Installations 请求必须带 current workspace | 1d | App/Header |
 | T005 | 权限选择组件 | 构建 permission acceptance UI，输出精确 permission id 数组 | F004 | requiredPermissions 可提示，acceptedPermissions 可为空但必须明确确认 | 1d | components |
 | T006 | 生命周期确认组件 | 替换 alert/confirm 为应用内确认与错误展示 | F006,F008 | 卸载与禁用错误均可恢复 | 1d | components |
-| T007 | Gated 页面替换 | 用 contract-aware 空状态替换 Invocations/Ledger mock | F007 | 不再渲染 TRACE_HISTORIES 作为平台事实 | 0.5d | Invocations/Ledger |
+| T007 | Runtime 页面接入 | 用 v4 JSON/SSE 与 metadata-only reads 替换 Invocations/Ledger gated 空状态 | F007 | 不再渲染 TRACE_HISTORIES 作为平台事实 | 0.5d | Invocations/Ledger |
 | T008 | 验证脚本 | 固化 npm test、npm run lint、npm run build 作为交付门禁 | F009 | 三个命令通过或记录环境阻塞 | 0.5d | package/scripts |
 
 ## 13. 开发启动前置确认
@@ -286,7 +289,7 @@ MVP 中这两个页面不做真实运行时调用。页面必须明确说明：
 | Bearer token 获取方式 | 未确认 | 开发者 / 后端负责人 | Console 只读取 VITE_NEKIRO_TOKEN |
 | 默认 Workspace ID | 未确认 | 产品/开发者 | 建议通过 env 配置；没有则 UI 允许创建/输入 |
 | Installation inspection/lifecycle 运行状态 | 需以当前分支测试确认 | 后端负责人 | OpenAPI/代码路由存在，handoff 文案有历史不一致 |
-| Invocation/Router/Ledger 运行状态 | 已判定不纳入 MVP live 接入 | - | 页面仅 gated |
+| Invocation/Router/Ledger 运行状态 | 已由 Spec 022 接入 Northbound v4 | - | Owner-only、Workspace-scoped |
 | 是否生成 OpenAPI TypeScript 类型 | 待决策 | 前端负责人 | MVP 可手写映射；后续建议 codegen |
 
 ## 14. 验收标准

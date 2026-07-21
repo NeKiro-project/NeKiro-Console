@@ -52,8 +52,8 @@ export default function RegistryTab(props: RegistryTabProps) {
   const [agentId, setAgentId] = useState('runtime.echo');
   const [name, setName] = useState('Runtime Echo Agent');
   const [description, setDescription] = useState('Echoes structured input through the A2A JSON-RPC profile.');
-  const [ownerId, setOwnerId] = useState(defaultOwnerId || 'team.platform');
-  const [ownerName, setOwnerName] = useState(defaultOwnerName || 'Platform Team');
+  const [ownerId, setOwnerId] = useState(defaultOwnerId);
+  const [ownerName, setOwnerName] = useState(defaultOwnerName);
   const [version, setVersion] = useState('1.0.0');
   const [endpoint, setEndpoint] = useState('http://127.0.0.1:9000/a2a');
   const [authentication, setAuthentication] = useState<AuthenticationType>('none');
@@ -229,7 +229,10 @@ export default function RegistryTab(props: RegistryTabProps) {
 function parsePermissions(value: string) {
   return value.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
     const [id, ...rest] = line.split(':');
-    return {id: id.trim(), description: rest.join(':').trim() || id.trim()};
+    const permissionID = id.trim();
+    const description = rest.join(':').trim();
+    if (!permissionID || !description) throw new Error('Each permission must include an ID and description separated by a colon.');
+    return {id: permissionID, description};
   });
 }
 

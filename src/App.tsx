@@ -31,8 +31,8 @@ export default function App() {
 
   const nekiroClient = useMemo(
     () => new NekiroApiClient({
-      baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL ?? '',
-      token: import.meta.env.VITE_NEKIRO_TOKEN ?? '',
+      baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
+      token: import.meta.env.VITE_NEKIRO_TOKEN,
     }),
     [],
   );
@@ -93,7 +93,7 @@ export default function App() {
   }, [loadAgents, searchQuery]);
 
   useEffect(() => {
-    const defaultWorkspaceId = import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID?.trim();
+    const defaultWorkspaceId = import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID;
     if (defaultWorkspaceId) {
       void loadWorkspace(defaultWorkspaceId).then((value) => {
         if (value) {
@@ -195,9 +195,9 @@ export default function App() {
       case 'installations':
         return 'Search installation id, agent id, pinned version...';
       case 'invocations':
-        return 'Invoke runtime is backend-gated in this MVP...';
+        return 'Filter active Workspace invocations...';
       case 'ledger':
-        return 'Ledger runtime is backend-gated in this MVP...';
+        return 'Read Invocation or Trace metadata...';
     }
   };
 
@@ -231,7 +231,7 @@ export default function App() {
         workspaceError={workspaceError}
         onReadWorkspace={handleReadWorkspace}
         onCreateWorkspace={handleCreateWorkspace}
-        userLabel={import.meta.env.VITE_NEKIRO_OWNER_NAME || import.meta.env.VITE_NEKIRO_OWNER_ID || 'Bearer principal'}
+        userLabel={import.meta.env.VITE_NEKIRO_OWNER_NAME ?? import.meta.env.VITE_NEKIRO_OWNER_ID ?? ''}
         apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL)}
       />
 
@@ -275,13 +275,13 @@ export default function App() {
 
           {activeTab === 'invocations' && (
             <motion.div key="invocations" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <InvocationsTab workspace={workspace} />
+              <InvocationsTab workspace={workspace} installations={installations} client={nekiroClient} />
             </motion.div>
           )}
 
           {activeTab === 'ledger' && (
             <motion.div key="ledger" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <LedgerTab workspace={workspace} />
+              <LedgerTab workspace={workspace} client={nekiroClient} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -300,8 +300,8 @@ export default function App() {
       {showSupport && (
         <Overlay title="MVP Boundary" icon={<HelpCircle size={22} />} onClose={() => setShowSupport(false)}>
           <div className="space-y-3 text-sm text-brand-on-surface-variant">
-            <p>Live surfaces: Registry, Workspace, and Installations through the public /v3 Northbound API.</p>
-            <p>Gated surfaces: Invocation Dispatch, A2A Router, and Ledger until the backend Invoke -&gt; Record path is delivered.</p>
+            <p>Live surfaces: Registry, Workspace, Installations, Invocation Dispatch, and metadata-only Ledger through public Gateway routes.</p>
+            <p>Runtime reads are Owner-authorized and Workspace-scoped. The Console never stores Agent secrets or fabricates Ledger events.</p>
           </div>
         </Overlay>
       )}
