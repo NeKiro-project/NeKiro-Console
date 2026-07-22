@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from 'react';
-import {AlertTriangle, CheckCircle2, Code2, Database, Loader2, Plus, Rocket, ShieldOff, UploadCloud} from 'lucide-react';
+import {AlertTriangle, CheckCircle2, Code2, Database, Layers, Loader2, Plus, Rocket, ShieldCheck, ShieldOff, UploadCloud} from 'lucide-react';
 
 import {buildAgentCard, toPlatformErrorView, type AgentCardV02, type AuthenticationType} from '../api/nekiro';
 import type {Agent, PlatformErrorView} from '../types';
@@ -13,6 +13,7 @@ interface RegistryTabProps {
   onOpenInstall: (agent: Agent) => void;
   catalogLoading: boolean;
   catalogError: PlatformErrorView | null;
+  catalogReady: boolean;
   defaultOwnerId: string;
   defaultOwnerName: string;
   searchQuery: string;
@@ -41,6 +42,7 @@ export default function RegistryTab(props: RegistryTabProps) {
     onOpenInstall,
     catalogLoading,
     catalogError,
+    catalogReady,
     defaultOwnerId,
     defaultOwnerName,
     searchQuery,
@@ -52,8 +54,8 @@ export default function RegistryTab(props: RegistryTabProps) {
   const [agentId, setAgentId] = useState('runtime.echo');
   const [name, setName] = useState('Runtime Echo Agent');
   const [description, setDescription] = useState('Echoes structured input through the A2A JSON-RPC profile.');
-  const [ownerId, setOwnerId] = useState(defaultOwnerId || 'team.platform');
-  const [ownerName, setOwnerName] = useState(defaultOwnerName || 'Platform Team');
+  const [ownerId, setOwnerId] = useState(defaultOwnerId);
+  const [ownerName, setOwnerName] = useState(defaultOwnerName);
   const [version, setVersion] = useState('1.0.0');
   const [endpoint, setEndpoint] = useState('http://127.0.0.1:9000/a2a');
   const [authentication, setAuthentication] = useState<AuthenticationType>('none');
@@ -103,7 +105,7 @@ export default function RegistryTab(props: RegistryTabProps) {
 
   return (
     <div className="h-full flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-4">
+      <div className="glass-page-header flex items-start justify-between gap-4">
         <div>
           <div className="font-mono-label text-[10px] uppercase tracking-[0.24em] text-brand-primary mb-2">Registry</div>
           <h2 className="text-2xl font-bold text-brand-on-surface">Agent Card Catalog</h2>
@@ -115,6 +117,19 @@ export default function RegistryTab(props: RegistryTabProps) {
       </div>
 
       <ErrorBanner error={catalogError ?? localError} />
+
+      <div className="grid grid-cols-4 gap-4 max-[900px]:grid-cols-2">
+        <GlassStat icon={<Database size={15} />} label="Visible cards" value={String(agents.length)} detail="from live Catalog" />
+        <GlassStat icon={<CheckCircle2 size={15} />} label="Published" value={String(agents.filter((agent) => agent.status === 'published').length)} detail="discoverable versions" accent="emerald" />
+        <GlassStat icon={<Layers size={15} />} label="Drafts" value={String(draftAgents.length)} detail="awaiting publish" accent="amber" />
+        <GlassStat
+          icon={<ShieldCheck size={15} />}
+          label="Gateway"
+          value={catalogError ? 'ERROR' : catalogLoading ? 'SYNC' : catalogReady ? 'LIVE' : 'WAIT'}
+          detail={catalogError ? (catalogError.code ?? 'Catalog request failed') : catalogReady ? 'Northbound /v3' : 'Awaiting first response'}
+          accent="violet"
+        />
+      </div>
 
       {showForm && (
         <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4 bg-brand-low border border-brand-outline-variant rounded-xl p-4">
@@ -152,7 +167,7 @@ export default function RegistryTab(props: RegistryTabProps) {
         </form>
       )}
 
-      <div className="grid grid-cols-[minmax(360px,0.95fr)_minmax(420px,1.05fr)] gap-5 min-h-0 flex-1">
+      <div className="glass-split-grid grid grid-cols-[minmax(360px,0.95fr)_minmax(420px,1.05fr)] gap-5 min-h-0 flex-1">
         <div className="bg-brand-low border border-brand-outline-variant rounded-xl overflow-hidden min-h-0 flex flex-col">
           <div className="px-4 py-3 border-b border-brand-outline-variant/60 flex items-center justify-between">
             <span className="text-xs font-bold text-brand-on-surface">Registry results</span>
@@ -229,7 +244,10 @@ export default function RegistryTab(props: RegistryTabProps) {
 function parsePermissions(value: string) {
   return value.split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
     const [id, ...rest] = line.split(':');
-    return {id: id.trim(), description: rest.join(':').trim() || id.trim()};
+    const permissionID = id.trim();
+    const description = rest.join(':').trim();
+    if (!permissionID || !description) throw new Error('Each permission must include an ID and description separated by a colon.');
+    return {id: permissionID, description};
   });
 }
 
@@ -311,7 +329,7 @@ function Field({label, value, onChange}: {label: string; value: string; onChange
 
 function StatusBadge({status}: {status: Agent['status']}) {
   const cls = status === 'published' ? 'text-green-300 border-green-400/30 bg-green-500/10' : status === 'draft' ? 'text-brand-primary border-brand-primary/30 bg-brand-primary/10' : 'text-brand-error border-brand-error/30 bg-brand-error-container/10';
-  return <span className={'text-[10px] px-2 py-0.5 rounded border uppercase font-mono-label ' + cls}>{status}</span>;
+  return <span className={'glass-status-badge text-[10px] px-2 py-0.5 rounded border uppercase font-mono-label ' + cls}>{status}</span>;
 }
 
 function ActionButton({icon, label, onClick}: {icon: React.ReactNode; label: string; onClick: () => void}) {
@@ -323,6 +341,17 @@ function Fact({label, value}: {label: string; value: string}) {
     <div className="bg-brand-lowest border border-brand-outline-variant rounded p-2 min-w-0">
       <div className="text-[10px] uppercase tracking-wider text-brand-on-surface-variant">{label}</div>
       <div className="font-mono-code text-[11px] text-brand-on-surface mt-1 truncate">{value}</div>
+    </div>
+  );
+}
+
+function GlassStat({icon, label, value, detail, accent}: {icon: React.ReactNode; label: string; value: string; detail: string; accent?: 'emerald' | 'amber' | 'violet'}) {
+  const color = accent === 'emerald' ? 'text-emerald-300' : accent === 'amber' ? 'text-amber-300' : accent === 'violet' ? 'text-violet-300' : 'text-indigo-300';
+  return (
+    <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] backdrop-blur-xl px-5 py-4 transition-all hover:border-white/[0.14] hover:-translate-y-px">
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-slate-500"><span className={color}>{icon}</span>{label}</div>
+      <div className="mt-2 text-[25px] font-extrabold tracking-tight text-slate-100">{value}</div>
+      <div className="mt-0.5 text-[10.5px] text-slate-500">{detail}</div>
     </div>
   );
 }

@@ -69,7 +69,7 @@ export interface CatalogSearchParams {
 
 export interface AgentCardInput {
   agentId: string;
-  name?: string;
+  name: string;
   ownerId: string;
   ownerDisplayName: string;
   description: string;
@@ -92,28 +92,126 @@ export interface InstallationList {
   nextCursor?: string;
 }
 
-interface PlatformErrorPayload {
-  code?: string;
-  message?: string;
-  traceId?: string;
-  error?: {
-    code?: string;
-    message?: string;
-    traceId?: string;
-  };
+export type PlatformErrorCode =
+  | 'VALIDATION_ERROR' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT'
+  | 'NOT_ACCEPTABLE' | 'PAYLOAD_TOO_LARGE' | 'AGENT_NOT_INSTALLED'
+  | 'INSTALLATION_DISABLED' | 'AGENT_DISABLED' | 'CAPABILITY_NOT_ALLOWED'
+  | 'ROUTE_NOT_FOUND' | 'AGENT_AUTH_UNSUPPORTED' | 'AGENT_RESPONSE_TOO_LARGE'
+  | 'A2A_PROTOCOL_ERROR' | 'AGENT_UNAVAILABLE' | 'AGENT_EXECUTION_FAILED'
+  | 'DEPENDENCY_ERROR' | 'TIMEOUT' | 'CANCELED' | 'INTERNAL_ERROR';
+
+export interface PreCorrelationPlatformErrorV4 {
+  code: PlatformErrorCode;
+  message: string;
+  traceId: string;
+}
+
+export interface CorrelatedPlatformErrorV4 extends PreCorrelationPlatformErrorV4 {
+  invocationId: string;
+  rootTaskId: string;
+}
+
+export type PlatformErrorV4 = PreCorrelationPlatformErrorV4 | CorrelatedPlatformErrorV4;
+
+export interface InvocationRequestV4 {
+  agentId: string;
+  capability: string;
+  input: JsonObject;
+  stream: boolean;
+}
+
+export interface InvocationResultV1 {
+  schemaVersion: '1';
+  invocationId: string;
+  rootTaskId: string;
+  traceId: string;
+  status: 'succeeded';
+  result: unknown;
+}
+
+export type ResultStreamEventType = 'accepted' | 'chunk' | 'completed' | 'failed' | 'canceled' | 'timed_out';
+export type InvocationResultStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'timed_out';
+
+export interface InvocationResultStreamEventV2 {
+  schemaVersion: '2';
+  sequence: number;
+  type: ResultStreamEventType;
+  status: InvocationResultStatus;
+  invocationId: string;
+  rootTaskId: string;
+  traceId: string;
+  chunkIndex?: number;
+  chunk?: unknown;
+  error?: CorrelatedPlatformErrorV4;
+}
+
+export type InvocationEventType = 'created' | 'routing' | 'started' | 'stream' | 'succeeded' | 'failed' | 'canceled' | 'timed_out';
+export type InvocationEventStatus = 'pending' | 'routing' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'timed_out';
+
+export interface InvocationEventV03 {
+  schemaVersion: '0.3';
+  eventId: string;
+  sequence: number;
+  occurredAt: string;
+  type: InvocationEventType;
+  status: InvocationEventStatus;
+  invocationId: string;
+  rootTaskId: string;
+  parentInvocationId?: string;
+  traceId: string;
+  caller: {type: 'user' | 'agent' | 'service'; id: string};
+  workspaceId: string;
+  targetAgentId: string;
+  agentCardVersion: string;
+  capability: string;
+  chunkIndex?: number;
+  chunkBytes?: number;
+  latencyMs?: number;
+  error?: CorrelatedPlatformErrorV4;
+}
+
+export interface InvocationRecordV4 {
+  invocationId: string;
+  rootTaskId: string;
+  parentInvocationId?: string;
+  traceId: string;
+  caller: {type: 'user' | 'agent' | 'service'; id: string};
+  workspaceId: string;
+  targetAgentId: string;
+  agentCardVersion: string;
+  capability: string;
+  status: InvocationEventStatus;
+  latencyMs?: number;
+  errorCode?: PlatformErrorCode;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InvocationDetailResponseV4 {
+  invocation: InvocationRecordV4;
+  events: InvocationEventV03[];
+}
+
+export interface TraceResponseV4 {
+  traceId: string;
+  invocations: InvocationRecordV4[];
 }
 
 export class NekiroApiError extends Error {
   readonly status: number;
   readonly code?: string;
   readonly traceId?: string;
+  readonly invocationId?: string;
+  readonly rootTaskId?: string;
 
-  constructor(status: number, message: string, code?: string, traceId?: string) {
+  constructor(status: number, message: string, code?: string, traceId?: string, invocationId?: string, rootTaskId?: string) {
     super(message);
     this.name = 'NekiroApiError';
     this.status = status;
     this.code = code;
     this.traceId = traceId;
+    this.invocationId = invocationId;
+    this.rootTaskId = rootTaskId;
   }
 
   toView(): PlatformErrorView {
@@ -122,13 +220,15 @@ export class NekiroApiError extends Error {
       code: this.code,
       message: this.message,
       traceId: this.traceId,
+      invocationId: this.invocationId,
+      rootTaskId: this.rootTaskId,
     };
   }
 }
 
 interface NekiroApiClientOptions {
   baseUrl: string;
-  token?: string;
+  token: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -138,8 +238,27 @@ export class NekiroApiClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: NekiroApiClientOptions) {
-    this.baseUrl = options.baseUrl.trim().replace(/\/+$/, '');
-    this.token = options.token?.trim() ?? '';
+    if (typeof options.baseUrl !== 'string' || options.baseUrl === '' || options.baseUrl !== options.baseUrl.trim()) {
+      throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is required and must not contain surrounding whitespace.', 'CONFIGURATION_ERROR');
+    }
+    let parsedBaseUrl: URL;
+    try {
+      parsedBaseUrl = new URL(options.baseUrl);
+    } catch {
+      throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is invalid.', 'CONFIGURATION_ERROR');
+    }
+    if (!['http:', 'https:'].includes(parsedBaseUrl.protocol) || parsedBaseUrl.username || parsedBaseUrl.password || parsedBaseUrl.search || parsedBaseUrl.hash) {
+      throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is invalid.', 'CONFIGURATION_ERROR');
+    }
+    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    const token = options.token;
+    if (typeof token !== 'string' || token === '') {
+      throw new NekiroApiError(0, 'NeKiro development bearer token is required.', 'CONFIGURATION_ERROR');
+    }
+    if (token !== token.trim() || /\s/.test(token)) {
+      throw new Error('NeKiro bearer token must not contain whitespace');
+    }
+    this.token = token;
     this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
   }
 
@@ -189,8 +308,11 @@ export class NekiroApiClient {
     });
   }
 
-  listInstallations(workspaceId: string, params: {limit?: number; cursor?: string} = {}): Promise<InstallationList> {
-    const query = this.queryString({limit: params.limit ?? 25, cursor: params.cursor});
+  listInstallations(workspaceId: string, params: {limit: number; cursor?: string}): Promise<InstallationList> {
+    if (!params || !Number.isInteger(params.limit) || params.limit < 1 || params.limit > 100) {
+      throw new Error('installation limit must be an integer between 1 and 100');
+    }
+    const query = this.queryString({limit: params.limit, cursor: params.cursor});
     return this.request<InstallationList>(this.workspaceInstallationPath(workspaceId) + query);
   }
 
@@ -209,6 +331,98 @@ export class NekiroApiClient {
     return this.request<Installation>(this.installationPath(workspaceId, installationId), {method: 'DELETE'});
   }
 
+  invoke(workspaceId: string, request: InvocationRequestV4): Promise<InvocationResultV1> {
+    if (request.stream !== false) {
+      throw new Error('streaming invocation must use invokeStream');
+    }
+    requireInvocationInput(request.input);
+    return this.request<InvocationResultV1>(this.invocationPath(workspaceId), {
+      method: 'POST',
+      headers: {'Accept': 'application/json'},
+      body: JSON.stringify({
+        agentId: readIdentifier(request.agentId, 'agentId'),
+        capability: readIdentifier(request.capability, 'capability'),
+        input: request.input,
+        stream: false,
+      }),
+    }).then((value) => validateInvocationResult(value));
+  }
+
+  async invokeStream(workspaceId: string, request: Omit<InvocationRequestV4, 'stream'>, onEvent?: (event: InvocationResultStreamEventV2) => void): Promise<InvocationResultStreamEventV2[]> {
+    requireInvocationInput(request.input);
+    const path = this.invocationPath(workspaceId);
+    const response = await this.rawRequest(path, {
+      method: 'POST',
+      headers: {'Accept': 'text/event-stream'},
+      body: JSON.stringify({
+        agentId: readIdentifier(request.agentId, 'agentId'),
+        capability: readIdentifier(request.capability, 'capability'),
+        input: request.input,
+        stream: true,
+      }),
+    });
+    if (!response.ok) {
+      throw await this.errorFromResponse(response);
+    }
+    if (response.headers.get('content-type')?.split(';', 1)[0].trim() !== 'text/event-stream') {
+      throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an invalid stream media type.', 'INVALID_RESPONSE');
+    }
+    if (!response.body) {
+      throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an empty stream.', 'INVALID_RESPONSE');
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let expectedSequence = 0;
+    let expectedChunkIndex = 0;
+    let terminal = false;
+    const events: InvocationResultStreamEventV2[] = [];
+    const consume = (line: string) => {
+      if (!line.startsWith('data: ')) throw new NekiroApiError(response.status, 'NeKiro stream contains an invalid data line.', 'INVALID_RESPONSE');
+      const event = validateResultStreamEvent(parseJsonValue(line.slice(6), 'stream event'));
+      if (terminal) throw new NekiroApiError(response.status, 'NeKiro stream emitted an event after terminal state.', 'INVALID_RESPONSE');
+      if (event.sequence !== expectedSequence) throw new NekiroApiError(response.status, 'NeKiro stream sequence is not contiguous.', 'INVALID_RESPONSE');
+      if ((expectedSequence === 0 && event.type !== 'accepted') || (expectedSequence > 0 && event.type === 'accepted')) throw new NekiroApiError(response.status, 'NeKiro stream accepted event must be first.', 'INVALID_RESPONSE');
+      if (event.type === 'chunk') {
+        if (event.chunkIndex !== expectedChunkIndex) throw new NekiroApiError(response.status, 'NeKiro stream chunk index is not contiguous.', 'INVALID_RESPONSE');
+        expectedChunkIndex += 1;
+      }
+      if (events[0] && (event.invocationId !== events[0].invocationId || event.rootTaskId !== events[0].rootTaskId || event.traceId !== events[0].traceId)) {
+        throw new NekiroApiError(response.status, 'NeKiro stream correlation changed.', 'INVALID_RESPONSE');
+      }
+      if (event.error && (event.error.invocationId !== event.invocationId || event.error.rootTaskId !== event.rootTaskId || event.error.traceId !== event.traceId)) {
+        throw new NekiroApiError(response.status, 'NeKiro stream error correlation changed.', 'INVALID_RESPONSE');
+      }
+      expectedSequence += 1;
+      terminal = event.type === 'completed' || event.type === 'failed' || event.type === 'canceled' || event.type === 'timed_out';
+      events.push(event);
+      onEvent?.(event);
+    };
+    for (;;) {
+      const result = await reader.read();
+      buffer += decoder.decode(result.value ?? new Uint8Array(), {stream: !result.done});
+      let newline = buffer.indexOf('\n');
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).replace(/\r$/, '');
+        buffer = buffer.slice(newline + 1);
+        if (line !== '') consume(line);
+        newline = buffer.indexOf('\n');
+      }
+      if (result.done) break;
+    }
+    if (buffer.trim() !== '') consume(buffer.trim());
+    if (!terminal) throw new NekiroApiError(response.status, 'NeKiro stream ended before a terminal event.', 'INVALID_RESPONSE');
+    return events;
+  }
+
+  getInvocation(workspaceId: string, invocationId: string): Promise<InvocationDetailResponseV4> {
+    return this.request<InvocationDetailResponseV4>(this.invocationPath(workspaceId) + '/' + encodeURIComponent(readIdentifier(invocationId, 'invocationId'))).then((value) => validateInvocationDetail(value, workspaceId));
+  }
+
+  getTrace(workspaceId: string, traceId: string): Promise<TraceResponseV4> {
+    return this.request<TraceResponseV4>(this.tracePath(workspaceId, traceId)).then((value) => validateTrace(value, workspaceId, traceId));
+  }
+
   private versionPath(agentId: string, version: string): string {
     return '/v3/agents/' + encodeURIComponent(agentId) + '/versions/' + encodeURIComponent(version);
   }
@@ -219,6 +433,14 @@ export class NekiroApiClient {
 
   private installationPath(workspaceId: string, installationId: string): string {
     return this.workspaceInstallationPath(workspaceId) + '/' + encodeURIComponent(readText(installationId, 'installationId'));
+  }
+
+  private invocationPath(workspaceId: string): string {
+    return '/v4/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/invocations';
+  }
+
+  private tracePath(workspaceId: string, traceId: string): string {
+    return '/v4/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/traces/' + encodeURIComponent(readIdentifier(traceId, 'traceId'));
   }
 
   private queryString(params: object): string {
@@ -242,61 +464,284 @@ export class NekiroApiClient {
     if (init.body && !headers.has('Content-Type')) {
       headers.set('Content-Type', 'application/json');
     }
-    if (this.token) {
-      headers.set('Authorization', 'Bearer ' + this.token);
-    }
+    headers.set('Authorization', 'Bearer ' + this.token);
 
-    let response: Response;
-    try {
-      response = await this.fetchImpl(new URL(path, this.baseUrl + '/'), {...init, headers});
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'NeKiro API request failed.';
-      throw new NekiroApiError(0, message, 'NETWORK_ERROR');
-    }
+    const response = await this.rawRequest(path, {...init, headers});
 
     const responseText = await response.text();
-    const payload = parseJson<PlatformErrorPayload | T>(responseText);
+    const payload = parseJson<unknown>(responseText);
     if (!response.ok) {
-      const platformError = isPlatformErrorPayload(payload) ? payload.error ?? payload : undefined;
-      throw new NekiroApiError(
-        response.status,
-        platformError?.message || 'NeKiro Control Plane API returned HTTP ' + response.status + '.',
-        platformError?.code,
-        platformError?.traceId || response.headers.get('x-nek-trace-id') || undefined,
-      );
+      throw await this.errorFromResponse(response, payload);
     }
 
-    if (response.status === 204 || responseText.length === 0) {
+    if (response.status === 204) {
       return undefined as T;
     }
+    if (responseText.length === 0) throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an empty success response.', 'INVALID_RESPONSE');
     if (payload === undefined) {
       throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned invalid JSON.', 'INVALID_RESPONSE');
     }
     return payload as T;
   }
+
+  private async rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
+    if (!this.baseUrl) throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
+    const headers = new Headers(init.headers);
+    headers.set('Accept', headers.get('Accept') ?? 'application/json');
+    if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+    headers.set('Authorization', 'Bearer ' + this.token);
+    try {
+      return await this.fetchImpl(new URL(path, this.baseUrl + '/'), {...init, headers});
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'NeKiro API request failed.';
+      throw new NekiroApiError(0, message, 'NETWORK_ERROR');
+    }
+  }
+
+  private async errorFromResponse(response: Response, knownPayload?: unknown): Promise<NekiroApiError> {
+    const payload = knownPayload ?? parseJson<unknown>(await response.text());
+    if (!isPlatformErrorV4(payload)) {
+      return new NekiroApiError(response.status, 'NeKiro Control Plane API returned an invalid Platform Error payload.', 'INVALID_RESPONSE');
+    }
+    const invocationId = 'invocationId' in payload ? payload.invocationId : undefined;
+    const rootTaskId = 'rootTaskId' in payload ? payload.rootTaskId : undefined;
+    return new NekiroApiError(response.status, payload.message, payload.code, payload.traceId, invocationId, rootTaskId);
+  }
+}
+
+const PLATFORM_ERROR_MESSAGES: Record<PlatformErrorCode, string> = {
+  VALIDATION_ERROR: 'The request is invalid.',
+  UNAUTHENTICATED: 'Authentication is required.',
+  FORBIDDEN: 'The requested operation is not allowed.',
+  NOT_FOUND: 'The requested resource was not found.',
+  CONFLICT: 'The requested operation conflicts with current state.',
+  NOT_ACCEPTABLE: 'The requested result mode is not acceptable.',
+  PAYLOAD_TOO_LARGE: 'The payload is too large.',
+  AGENT_NOT_INSTALLED: 'The Agent is not installed in this Workspace.',
+  INSTALLATION_DISABLED: 'The Agent installation is disabled.',
+  AGENT_DISABLED: 'The Agent version is disabled.',
+  CAPABILITY_NOT_ALLOWED: 'The requested capability is not allowed.',
+  ROUTE_NOT_FOUND: 'No route is available for the Agent.',
+  AGENT_AUTH_UNSUPPORTED: 'The Agent authentication type is not supported for invocation.',
+  AGENT_RESPONSE_TOO_LARGE: 'The Agent response is too large.',
+  A2A_PROTOCOL_ERROR: 'The Agent returned an invalid A2A response.',
+  AGENT_UNAVAILABLE: 'The Agent is unavailable.',
+  AGENT_EXECUTION_FAILED: 'The Agent failed to complete the invocation.',
+  DEPENDENCY_ERROR: 'A required platform dependency failed.',
+  TIMEOUT: 'The invocation timed out.',
+  CANCELED: 'The invocation was canceled.',
+  INTERNAL_ERROR: 'The platform could not complete the request.',
+};
+
+function validateInvocationResult(value: unknown): InvocationResultV1 {
+  const record = requireRecord(value, 'Invocation Result');
+  assertAllowedKeys(record, ['schemaVersion', 'invocationId', 'rootTaskId', 'traceId', 'status', 'result'], 'Invocation Result');
+  if (record.schemaVersion !== '1' || record.status !== 'succeeded') throw new Error('Invocation Result schema or status is invalid');
+  requireIdentifier(record.invocationId, 'invocationId');
+  requireIdentifier(record.rootTaskId, 'rootTaskId');
+  requireIdentifier(record.traceId, 'traceId');
+  if (!('result' in record)) throw new Error('Invocation Result result is required');
+  return record as unknown as InvocationResultV1;
+}
+
+function validateResultStreamEvent(value: unknown): InvocationResultStreamEventV2 {
+  const record = requireRecord(value, 'Invocation Result Stream Event');
+  assertAllowedKeys(record, ['schemaVersion', 'sequence', 'type', 'status', 'invocationId', 'rootTaskId', 'traceId', 'chunkIndex', 'chunk', 'error'], 'Invocation Result Stream Event');
+  if (record.schemaVersion !== '2' || typeof record.sequence !== 'number' || !Number.isInteger(record.sequence) || record.sequence < 0) throw new Error('Invocation Result Stream Event schema or sequence is invalid');
+  const type = requireEnum(record.type, ['accepted', 'chunk', 'completed', 'failed', 'canceled', 'timed_out'], 'stream event type') as ResultStreamEventType;
+  const status = requireEnum(record.status, ['pending', 'running', 'succeeded', 'failed', 'canceled', 'timed_out'], 'stream event status') as InvocationResultStatus;
+  requireIdentifier(record.invocationId, 'invocationId'); requireIdentifier(record.rootTaskId, 'rootTaskId'); requireIdentifier(record.traceId, 'traceId');
+  if (type === 'accepted' && (status !== 'pending' || 'chunk' in record || 'chunkIndex' in record || 'error' in record)) throw new Error('accepted stream event is invalid');
+  if (type === 'chunk' && (status !== 'running' || !isNonNegativeInteger(record.chunkIndex) || !('chunk' in record) || 'error' in record)) throw new Error('chunk stream event is invalid');
+  if (type === 'completed' && (status !== 'succeeded' || 'chunk' in record || 'chunkIndex' in record || 'error' in record)) throw new Error('completed stream event is invalid');
+  if (type === 'failed' || type === 'canceled' || type === 'timed_out') {
+    if (status !== type) throw new Error('terminal stream event status is invalid');
+    if (!isCorrelatedPlatformError(record.error)) throw new Error('terminal stream event error is invalid');
+    if (type === 'failed' && (record.error.code === 'CANCELED' || record.error.code === 'TIMEOUT')) throw new Error('failed stream event error code is invalid');
+    if (type === 'canceled' && record.error.code !== 'CANCELED') throw new Error('canceled stream event error code is invalid');
+    if (type === 'timed_out' && record.error.code !== 'TIMEOUT') throw new Error('timed_out stream event error code is invalid');
+    if ('chunk' in record || 'chunkIndex' in record) throw new Error('terminal stream event cannot contain a chunk');
+  }
+  return record as unknown as InvocationResultStreamEventV2;
+}
+
+function validateInvocationDetail(value: unknown, workspaceId: string): InvocationDetailResponseV4 {
+  const record = requireRecord(value, 'Invocation Detail');
+  assertAllowedKeys(record, ['invocation', 'events'], 'Invocation Detail');
+  const invocation = validateInvocationRecord(record.invocation, workspaceId);
+  if (!Array.isArray(record.events) || record.events.length === 0) throw new Error('Invocation Detail events are required');
+  const events = record.events.map((event) => validateInvocationEvent(event, workspaceId));
+  const lastEvent = events[events.length - 1];
+  const eventIDs = new Set<string>();
+  let previous: InvocationEventV03 | undefined;
+  let expectedChunkIndex = 0;
+  events.forEach((event, index) => {
+    if (event.sequence !== index || event.invocationId !== invocation.invocationId || event.rootTaskId !== invocation.rootTaskId || event.parentInvocationId !== invocation.parentInvocationId || event.traceId !== invocation.traceId || event.workspaceId !== invocation.workspaceId || event.targetAgentId !== invocation.targetAgentId || event.agentCardVersion !== invocation.agentCardVersion || event.capability !== invocation.capability || event.caller.type !== invocation.caller.type || event.caller.id !== invocation.caller.id) throw new Error('Invocation Detail event correlation is invalid');
+    if (eventIDs.has(event.eventId)) throw new Error('Invocation Detail repeats an event');
+    eventIDs.add(event.eventId);
+    if (!previous) {
+      if (event.type !== 'created' || event.status !== 'pending') throw new Error('Invocation Detail must begin with created/pending');
+    } else if (!validInvocationTransition(previous.status, event.type, event.status)) {
+      throw new Error('Invocation Detail event transition is invalid');
+    }
+    if (event.type === 'stream') {
+      if (event.chunkIndex !== expectedChunkIndex) throw new Error('Invocation Detail chunk sequence is invalid');
+      expectedChunkIndex += 1;
+    }
+    previous = event;
+  });
+  if (lastEvent.status !== invocation.status) throw new Error('Invocation Detail status does not match its last event');
+  return {invocation, events};
+}
+
+function validateTrace(value: unknown, workspaceId: string, traceId: string): TraceResponseV4 {
+  const record = requireRecord(value, 'Trace');
+  assertAllowedKeys(record, ['traceId', 'invocations'], 'Trace');
+  if (record.traceId !== traceId || !Array.isArray(record.invocations) || record.invocations.length === 0) throw new Error('Trace correlation or lineage is invalid');
+  const invocations = record.invocations.map((item) => validateInvocationRecord(item, workspaceId));
+  const identities = new Set<string>();
+  const rootTaskID = invocations[0].rootTaskId;
+  invocations.forEach((invocation) => {
+    if (invocation.traceId !== traceId || invocation.rootTaskId !== rootTaskID || identities.has(invocation.invocationId)) throw new Error('Trace Invocation correlation is invalid');
+    if (invocation.parentInvocationId && (invocation.parentInvocationId === invocation.invocationId || !identities.has(invocation.parentInvocationId))) throw new Error('Trace parent ordering is invalid');
+    identities.add(invocation.invocationId);
+  });
+  return {traceId, invocations};
+}
+
+function validateInvocationRecord(value: unknown, workspaceId: string): InvocationRecordV4 {
+  const record = requireRecord(value, 'Invocation Record');
+  assertAllowedKeys(record, ['invocationId', 'rootTaskId', 'parentInvocationId', 'traceId', 'caller', 'workspaceId', 'targetAgentId', 'agentCardVersion', 'capability', 'status', 'latencyMs', 'errorCode', 'createdAt', 'updatedAt'], 'Invocation Record');
+  const invocationId = record.invocationId;
+  requireIdentifier(invocationId, 'invocationId');
+  requireIdentifier(record.rootTaskId, 'rootTaskId');
+  requireIdentifier(record.traceId, 'traceId');
+  if (record.workspaceId !== workspaceId) throw new Error('Invocation Record Workspace does not match the active Workspace');
+  requireIdentifier(record.targetAgentId, 'targetAgentId'); requireIdentifier(record.capability, 'capability');
+  if (typeof record.agentCardVersion !== 'string' || !isSemver(record.agentCardVersion)) throw new Error('agentCardVersion must be strict SemVer');
+  requireCaller(record.caller);
+  requireEnum(record.status, ['pending', 'routing', 'running', 'succeeded', 'failed', 'canceled', 'timed_out'], 'invocation status');
+  requireDate(record.createdAt, 'createdAt'); requireDate(record.updatedAt, 'updatedAt');
+  if ('parentInvocationId' in record && record.parentInvocationId !== undefined) requireIdentifier(record.parentInvocationId, 'parentInvocationId');
+  if ('latencyMs' in record && record.latencyMs !== undefined && (typeof record.latencyMs !== 'number' || !Number.isInteger(record.latencyMs) || record.latencyMs < 0)) throw new Error('latencyMs is invalid');
+  if ('errorCode' in record && record.errorCode !== undefined) requirePlatformCode(record.errorCode);
+  return {...record, invocationId} as unknown as InvocationRecordV4;
+}
+
+function validateInvocationEvent(value: unknown, workspaceId: string): InvocationEventV03 {
+  const record = requireRecord(value, 'Invocation Event');
+  assertAllowedKeys(record, ['schemaVersion', 'eventId', 'sequence', 'occurredAt', 'type', 'status', 'invocationId', 'rootTaskId', 'parentInvocationId', 'traceId', 'caller', 'workspaceId', 'targetAgentId', 'agentCardVersion', 'capability', 'chunkIndex', 'chunkBytes', 'latencyMs', 'error'], 'Invocation Event');
+  if (record.schemaVersion !== '0.3' || typeof record.sequence !== 'number' || !Number.isInteger(record.sequence) || record.sequence < 0) throw new Error('Invocation Event schema or sequence is invalid');
+  requireIdentifier(record.eventId, 'eventId'); requireDate(record.occurredAt, 'occurredAt'); requireIdentifier(record.invocationId, 'invocationId'); requireIdentifier(record.rootTaskId, 'rootTaskId'); requireIdentifier(record.traceId, 'traceId');
+  if (record.workspaceId !== workspaceId) throw new Error('Invocation Event Workspace does not match the active Workspace');
+  requireCaller(record.caller); requireIdentifier(record.targetAgentId, 'targetAgentId');
+  if (typeof record.agentCardVersion !== 'string' || !isSemver(record.agentCardVersion)) throw new Error('agentCardVersion must be strict SemVer');
+  requireIdentifier(record.capability, 'capability');
+  const type = requireEnum(record.type, ['created', 'routing', 'started', 'stream', 'succeeded', 'failed', 'canceled', 'timed_out'], 'event type') as InvocationEventType;
+  const status = requireEnum(record.status, ['pending', 'routing', 'running', 'succeeded', 'failed', 'canceled', 'timed_out'], 'event status') as InvocationEventStatus;
+  if (type === 'created' && (status !== 'pending' || hasAny(record, ['chunkIndex', 'chunkBytes', 'latencyMs', 'error']))) throw new Error('created Invocation Event is invalid');
+  if (type === 'routing' && (status !== 'routing' || hasAny(record, ['chunkIndex', 'chunkBytes', 'latencyMs', 'error']))) throw new Error('routing Invocation Event is invalid');
+  if (type === 'started' && (status !== 'running' || hasAny(record, ['chunkIndex', 'chunkBytes', 'latencyMs', 'error']))) throw new Error('started Invocation Event is invalid');
+  if (type === 'stream' && (status !== 'running' || !isNonNegativeInteger(record.chunkIndex) || !isNonNegativeInteger(record.chunkBytes) || hasAny(record, ['latencyMs', 'error']))) throw new Error('stream Invocation Event is invalid');
+  if (type === 'succeeded' && (status !== 'succeeded' || !isNonNegativeInteger(record.latencyMs) || hasAny(record, ['chunkIndex', 'chunkBytes', 'error']))) throw new Error('succeeded Invocation Event is invalid');
+  if (type === 'failed' || type === 'canceled' || type === 'timed_out') {
+    if (status !== type || !isNonNegativeInteger(record.latencyMs) || !isCorrelatedPlatformError(record.error) || hasAny(record, ['chunkIndex', 'chunkBytes'])) throw new Error('terminal Invocation Event is invalid');
+    if (type === 'failed' && (record.error.code === 'CANCELED' || record.error.code === 'TIMEOUT')) throw new Error('failed Invocation Event error code is invalid');
+    if (type === 'canceled' && record.error.code !== 'CANCELED') throw new Error('canceled Invocation Event error code is invalid');
+    if (type === 'timed_out' && record.error.code !== 'TIMEOUT') throw new Error('timed_out Invocation Event error code is invalid');
+  }
+  if (('chunkIndex' in record && record.chunkIndex !== undefined && !isNonNegativeInteger(record.chunkIndex)) || ('chunkBytes' in record && record.chunkBytes !== undefined && !isNonNegativeInteger(record.chunkBytes))) throw new Error('Invocation Event chunk metadata is invalid');
+  if (isCorrelatedPlatformError(record.error) && (record.error.invocationId !== record.invocationId || record.error.rootTaskId !== record.rootTaskId || record.error.traceId !== record.traceId)) throw new Error('Invocation Event error correlation changed');
+  return record as unknown as InvocationEventV03;
+}
+
+function isCorrelatedPlatformError(value: unknown): value is CorrelatedPlatformErrorV4 {
+  if (!isRecord(value) || !('invocationId' in value) || !('rootTaskId' in value)) return false;
+  if (Object.keys(value).some((key) => !['code', 'message', 'traceId', 'invocationId', 'rootTaskId'].includes(key))) return false;
+  requirePlatformCode(value.code);
+  if (value.message !== PLATFORM_ERROR_MESSAGES[value.code as PlatformErrorCode]) return false;
+  requireIdentifier(value.traceId, 'traceId'); requireIdentifier(value.invocationId, 'invocationId'); requireIdentifier(value.rootTaskId, 'rootTaskId');
+  return true;
+}
+
+function requirePlatformCode(value: unknown): asserts value is PlatformErrorCode {
+  requireEnum(value, Object.keys(PLATFORM_ERROR_MESSAGES), 'Platform Error code');
+}
+
+function requireCaller(value: unknown): void {
+  const caller = requireRecord(value, 'caller');
+  requireEnum(caller.type, ['user', 'agent', 'service'], 'caller.type'); requireIdentifier(caller.id, 'caller.id');
+}
+
+function requireDate(value: unknown, field: string): void {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) || Number.isNaN(Date.parse(value))) throw new Error(field + ' is invalid');
+}
+
+function requireIdentifier(value: unknown, field: string): asserts value is string {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(value)) throw new Error(field + ' must be a NeKiro safe identifier');
+}
+
+function requireEnum(value: unknown, values: readonly string[], field: string): string {
+  if (typeof value !== 'string' || !values.includes(value)) throw new Error(field + ' is invalid');
+  return value;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function hasAny(record: Record<string, unknown>, fields: string[]): boolean {
+  return fields.some((field) => field in record);
+}
+
+function assertAllowedKeys(record: Record<string, unknown>, allowed: string[], field: string): void {
+  const known = new Set(allowed);
+  if (Object.keys(record).some((key) => !known.has(key))) throw new Error(field + ' contains an unknown field');
+}
+
+function validInvocationTransition(from: InvocationEventStatus, type: InvocationEventType, to: InvocationEventStatus): boolean {
+  if (from === 'pending') return (type === 'routing' && to === 'routing') || ((type === 'canceled' || type === 'timed_out') && type === to);
+  if (from === 'routing') return (type === 'started' && to === 'running') || ((type === 'failed' || type === 'canceled' || type === 'timed_out') && type === to);
+  if (from === 'running') return (type === 'stream' && to === 'running') || ((type === 'succeeded' || type === 'failed' || type === 'canceled' || type === 'timed_out') && type === to);
+  return false;
+}
+
+function requireRecord(value: unknown, field: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(field + ' must be a JSON object');
+  return value;
+}
+
+function requireInvocationInput(value: unknown): asserts value is JsonObject {
+  if (!isRecord(value)) throw new Error('invocation input must be a JSON object');
+}
+
+function parseJsonValue(value: string, field: string): unknown {
+  try { return JSON.parse(value); } catch { throw new NekiroApiError(0, 'NeKiro ' + field + ' is not valid JSON.', 'INVALID_RESPONSE'); }
 }
 
 export function buildAgentCard(input: AgentCardInput): AgentCardV02 {
+  if (!['none', 'api_key', 'http_bearer', 'oauth2_client_credentials', 'mutual_tls'].includes(input.authentication)) throw new Error('authentication type is invalid');
   const agentId = readIdentifier(input.agentId, 'agentId');
-  const permissions = input.permissions.map((permission, index) => ({
-    id: readIdentifier(permission.id, 'permissions[' + index + '].id'),
-    description: readText(permission.description, 'permissions[' + index + '].description'),
-  }));
+  const permissions = input.permissions.map((permission, index) => {
+    assertPermissionKeys(permission, index);
+    return {
+      id: readIdentifier(permission.id, 'permissions[' + index + '].id'),
+      description: readText(permission.description, 'permissions[' + index + '].description', 1000),
+    };
+  });
   ensureUnique(permissions.map((permission) => permission.id), 'permission id');
 
   const declaredPermissions = new Set(permissions.map((permission) => permission.id));
   const parsed = parseCapabilities(input.capabilitiesJson);
   const seenSkillIds = new Set<string>();
   const skills = parsed.map((capability, index) => {
-    const id = readIdentifier(capability.id ?? capability.type, 'capabilities[' + index + '].id');
+    assertAllowedKeys(capability, ['id', 'name', 'description', 'inputSchema', 'outputSchema', 'requiredPermissions'], 'capabilities[' + index + ']');
+    const id = readIdentifier(capability.id, 'capabilities[' + index + '].id');
     if (seenSkillIds.has(id)) {
       throw new Error('duplicate capability id: ' + id);
     }
     seenSkillIds.add(id);
-    const requiredPermissions = readStringArray(
-      capability.requiredPermissions ?? permissions.map((permission) => permission.id),
-      'capabilities[' + index + '].requiredPermissions',
-    );
+    const requiredPermissions = readStringArray(capability.requiredPermissions, 'capabilities[' + index + '].requiredPermissions');
     for (const permissionId of requiredPermissions) {
       if (!declaredPermissions.has(permissionId)) {
         throw new Error('required permission is not declared in permissions: ' + permissionId);
@@ -305,15 +750,15 @@ export function buildAgentCard(input: AgentCardInput): AgentCardV02 {
 
     return {
       id,
-      name: readText(capability.name ?? id, 'capabilities[' + index + '].name'),
-      description: readText(capability.description ?? 'Capability ' + id + '.', 'capabilities[' + index + '].description'),
-      inputSchema: readJsonObject(capability.inputSchema) ?? {type: 'object'},
-      outputSchema: readJsonObject(capability.outputSchema) ?? {type: 'object'},
+      name: readText(capability.name, 'capabilities[' + index + '].name', 120),
+      description: readText(capability.description, 'capabilities[' + index + '].description', 2000),
+      inputSchema: readJsonObject(capability.inputSchema, 'capabilities[' + index + '].inputSchema'),
+      outputSchema: readJsonObject(capability.outputSchema, 'capabilities[' + index + '].outputSchema'),
       requiredPermissions,
     } satisfies AgentSkill;
   });
 
-  const endpoint = readText(input.endpoint, 'endpoint');
+  const endpoint = readText(input.endpoint, 'endpoint', 2048);
   let endpointUrl: URL;
   try {
     endpointUrl = new URL(endpoint);
@@ -331,15 +776,16 @@ export function buildAgentCard(input: AgentCardInput): AgentCardV02 {
   if (!isSemver(version)) {
     throw new Error('version must be strict SemVer');
   }
+  validateAgentLimits(input.limits);
 
   return {
     schemaVersion: '0.2',
     agentId,
-    name: readText(input.name ?? input.agentId, 'name'),
-    description: readText(input.description, 'description'),
+    name: readText(input.name, 'name', 120),
+    description: readText(input.description, 'description', 4000),
     owner: {
       id: readIdentifier(input.ownerId, 'ownerId'),
-      displayName: readText(input.ownerDisplayName, 'ownerDisplayName'),
+      displayName: readText(input.ownerDisplayName, 'ownerDisplayName', 120),
     },
     version,
     protocol: {
@@ -353,6 +799,20 @@ export function buildAgentCard(input: AgentCardInput): AgentCardV02 {
     permissions,
     limits: input.limits,
   };
+}
+
+function validateAgentLimits(value: AgentCardV02['limits']): void {
+  if (!isRecord(value)) throw new Error('limits must be a JSON object');
+  assertAllowedKeys(value, ['timeoutMs', 'maxInputBytes', 'maxOutputBytes', 'streaming'], 'limits');
+  if (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 1 || value.timeoutMs > 600000) throw new Error('limits.timeoutMs must be between 1 and 600000');
+  if (!Number.isInteger(value.maxInputBytes) || value.maxInputBytes < 1 || value.maxInputBytes > 2147483647) throw new Error('limits.maxInputBytes must be between 1 and 2147483647');
+  if (!Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1 || value.maxOutputBytes > 2147483647) throw new Error('limits.maxOutputBytes must be between 1 and 2147483647');
+  if (typeof value.streaming !== 'boolean') throw new Error('limits.streaming must be a boolean');
+}
+
+function assertPermissionKeys(value: unknown, index: number): void {
+  if (!isRecord(value)) throw new Error('permissions[' + index + '] must be a JSON object');
+  assertAllowedKeys(value, ['id', 'description'], 'permissions[' + index + ']');
 }
 
 export function mapCatalogEntry(entry: CatalogEntry): Agent {
@@ -372,14 +832,14 @@ export function mapCatalogEntry(entry: CatalogEntry): Agent {
   };
 }
 
-export function toPlatformErrorView(error: unknown, fallbackMessage: string): PlatformErrorView {
+export function toPlatformErrorView(error: unknown, _fallbackMessage: string): PlatformErrorView {
   if (error instanceof NekiroApiError) {
     return error.toView();
   }
   return {
     status: 0,
     code: 'CLIENT_ERROR',
-    message: error instanceof Error ? error.message : fallbackMessage,
+    message: error instanceof Error ? error.message : String(error),
   };
 }
 
@@ -399,11 +859,11 @@ function parseCapabilities(value: string): Record<string, unknown>[] {
   return parsed.capabilities;
 }
 
-function readText(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
+function readText(value: unknown, field: string, maxLength?: number): string {
+  if (typeof value !== 'string' || value.trim() === '' || value !== value.trim() || (maxLength !== undefined && value.length > maxLength)) {
     throw new Error(field + ' must be a non-empty string');
   }
-  return value.trim();
+  return value;
 }
 
 function readIdentifier(value: unknown, field: string): string {
@@ -415,14 +875,19 @@ function readIdentifier(value: unknown, field: string): string {
 }
 
 function readStringArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string' && item.trim() !== '')) {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string' && item.trim() !== '' && item === item.trim())) {
     throw new Error(field + ' must be an array of non-empty strings');
   }
-  return value.map((item) => item.trim());
+  const result = value as string[];
+  ensureUnique(result, field + ' value');
+  return result;
 }
 
-function readJsonObject(value: unknown): JsonObject | undefined {
-  return isRecord(value) ? value : undefined;
+function readJsonObject(value: unknown, field: string): JsonObject {
+  if (!isRecord(value)) {
+    throw new Error(field + ' must be a JSON object');
+  }
+  return value;
 }
 
 function ensureUnique(values: string[], label: string): void {
@@ -454,6 +919,11 @@ function parseJson<T>(value: string): T | undefined {
   }
 }
 
-function isPlatformErrorPayload(value: unknown): value is PlatformErrorPayload {
-  return isRecord(value) && ('code' in value || 'message' in value || 'traceId' in value || 'error' in value);
+function isPlatformErrorV4(value: unknown): value is PlatformErrorV4 {
+  if (!isRecord(value) || typeof value.code !== 'string' || !(value.code in PLATFORM_ERROR_MESSAGES) || value.message !== PLATFORM_ERROR_MESSAGES[value.code as PlatformErrorCode] || typeof value.traceId !== 'string' || !/^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(value.traceId)) return false;
+  const correlated = 'invocationId' in value || 'rootTaskId' in value;
+  const allowed = correlated ? ['code', 'message', 'traceId', 'invocationId', 'rootTaskId'] : ['code', 'message', 'traceId'];
+  if (Object.keys(value).some((key) => !allowed.includes(key))) return false;
+  if (!correlated) return true;
+  return typeof value.invocationId === 'string' && typeof value.rootTaskId === 'string' && /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(value.invocationId) && /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(value.rootTaskId);
 }

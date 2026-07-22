@@ -10,11 +10,15 @@ This Console follows the MVP spec in docs/superpowers/specs/2026-07-16-nekiro-co
 - Workspace: POST /v3/workspaces and GET /v3/workspaces/{workspaceId} from the header.
 - Installations: install, list, enable, disable, and uninstall through /v3/workspaces/{workspaceId}/installations.
 
-## Gated surfaces
+## Runtime surfaces
 
-- Invocations and Ledger are intentionally contract-aware empty states.
-- The UI does not render fake traces, fake task streams, or fabricated timeout events.
-- These pages should become live only after the backend headless Invoke to Record path is delivered.
+- Invocations uses `POST /v4/workspaces/{workspaceId}/invocations` for JSON and
+  SSE results, with strict correlation and terminal-event validation.
+- Ledger reads metadata-only Invocation and Trace projections through the same
+  Workspace-scoped Gateway API. No fake traces, task streams, or timeout events
+  are rendered.
+- The browser uses one active Workspace and the development-static bearer token;
+  Agent authentication is declaration-only and never collects secrets.
 
 ## Configuration
 
@@ -38,5 +42,5 @@ The bearer token is sent only as an Authorization header. It is not written to l
     npm test
     npm run lint
     npm run build
-    rg "/v2/agents" src docs -n
+    rg "/v4/workspaces/.+invocations|/v4/workspaces/.+traces" src docs -n
     rg "INITIAL_AGENTS|INITIAL_INSTALLATIONS|TRACE_HISTORIES" src -n

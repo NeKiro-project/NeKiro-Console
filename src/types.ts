@@ -46,6 +46,8 @@ export interface PlatformErrorView {
   code?: string;
   message: string;
   traceId?: string;
+  invocationId?: string;
+  rootTaskId?: string;
 }
 
 export interface TraceNode {

@@ -92,7 +92,7 @@ export default function InstallationsTab({
 
   return (
     <div className="h-full flex flex-col gap-5">
-      <div className="flex items-start justify-between">
+      <div className="glass-page-header flex items-start justify-between gap-4">
         <div>
           <div className="font-mono-label text-[10px] uppercase tracking-[0.24em] text-brand-primary mb-2">Installations</div>
           <h2 className="text-2xl font-bold text-brand-on-surface">Workspace Agent Pins</h2>
@@ -114,7 +114,7 @@ export default function InstallationsTab({
 
       <ErrorBanner error={error ?? localError} />
 
-      <div className="grid grid-cols-[minmax(360px,0.85fr)_minmax(520px,1.15fr)] gap-5 min-h-0 flex-1">
+      <div className="glass-split-grid grid grid-cols-[minmax(360px,0.85fr)_minmax(520px,1.15fr)] gap-5 min-h-0 flex-1">
         <form onSubmit={handleInstall} className="bg-brand-low border border-brand-outline-variant rounded-xl p-4 h-fit">
           <div className="flex items-center gap-2 mb-4">
             <Database size={16} className="text-brand-primary" />
@@ -219,7 +219,7 @@ function ErrorBanner({error}: {error: PlatformErrorView | null}) {
 
 function StatusBadge({status}: {status: InstallationStatus}) {
   const cls = status === 'enabled' ? 'text-green-300 border-green-400/30 bg-green-500/10' : status === 'disabled' ? 'text-brand-primary border-brand-primary/30 bg-brand-primary/10' : 'text-brand-error border-brand-error/30 bg-brand-error-container/10';
-  return <span className={'text-[10px] px-2 py-0.5 rounded border uppercase font-mono-label ' + cls}>{status}</span>;
+  return <span className={'glass-status-badge text-[10px] px-2 py-0.5 rounded border uppercase font-mono-label ' + cls}>{status}</span>;
 }
 
 function Fact({label, value}: {label: string; value: string}) {
