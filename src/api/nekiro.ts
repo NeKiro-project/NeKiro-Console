@@ -311,7 +311,15 @@ export class NekiroApiClient {
     } catch {
       throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is invalid.', 'CONFIGURATION_ERROR');
     }
-    if (!['http:', 'https:'].includes(parsedBaseUrl.protocol) || parsedBaseUrl.username || parsedBaseUrl.password || parsedBaseUrl.search || parsedBaseUrl.hash) {
+    if (!['http:', 'https:'].includes(parsedBaseUrl.protocol)
+      || parsedBaseUrl.username
+      || parsedBaseUrl.password
+      || parsedBaseUrl.search
+      || parsedBaseUrl.hash
+      || parsedBaseUrl.pathname !== '/'
+      || parsedBaseUrl.hostname === 'localhost'
+      || parsedBaseUrl.hostname.includes('*')
+      || isIpHostname(parsedBaseUrl.hostname)) {
       throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is invalid.', 'CONFIGURATION_ERROR');
     }
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
@@ -448,14 +456,14 @@ export class NekiroApiClient {
   }
 
   installAgent(workspaceId: string, request: InstallAgentRequest): Promise<Installation> {
-    return this.request<Installation>(this.workspaceInstallationPath(workspaceId), {
+    return this.request<unknown>(this.workspaceInstallationPath(workspaceId), {
       method: 'POST',
       body: JSON.stringify({
         agentId: readText(request.agentId, 'agentId'),
         versionConstraint: readText(request.versionConstraint, 'versionConstraint'),
         acceptedPermissions: request.acceptedPermissions,
       }),
-    });
+    }).then((value) => validateInstallation(value, workspaceId));
   }
 
   listInstallations(workspaceId: string, params: {limit: number; cursor?: string}): Promise<InstallationList> {
@@ -463,22 +471,22 @@ export class NekiroApiClient {
       throw new Error('installation limit must be an integer between 1 and 100');
     }
     const query = this.queryString({limit: params.limit, cursor: params.cursor});
-    return this.request<InstallationList>(this.workspaceInstallationPath(workspaceId) + query);
+    return this.request<unknown>(this.workspaceInstallationPath(workspaceId) + query).then((value) => validateInstallationList(value, workspaceId));
   }
 
   getInstallation(workspaceId: string, installationId: string): Promise<Installation> {
-    return this.request<Installation>(this.installationPath(workspaceId, installationId));
+    return this.request<unknown>(this.installationPath(workspaceId, installationId)).then((value) => validateInstallation(value, workspaceId));
   }
 
   updateInstallation(workspaceId: string, installationId: string, status: Exclude<InstallationStatus, 'uninstalled'>): Promise<Installation> {
-    return this.request<Installation>(this.installationPath(workspaceId, installationId), {
+    return this.request<unknown>(this.installationPath(workspaceId, installationId), {
       method: 'PATCH',
       body: JSON.stringify({status}),
-    });
+    }).then((value) => validateInstallation(value, workspaceId));
   }
 
   uninstallAgent(workspaceId: string, installationId: string): Promise<Installation> {
-    return this.request<Installation>(this.installationPath(workspaceId, installationId), {method: 'DELETE'});
+    return this.request<unknown>(this.installationPath(workspaceId, installationId), {method: 'DELETE'}).then((value) => validateInstallation(value, workspaceId));
   }
 
   invoke(workspaceId: string, request: InvocationRequestV4): Promise<InvocationResultV1> {
@@ -1204,6 +1212,55 @@ export function mapCatalogEntry(entry: CatalogEntry): Agent {
   };
 }
 
+function validateInstallation(value: unknown, workspaceId: string): Installation {
+  const record = requireRecord(value, 'Installation');
+  assertAllowedKeys(record, ['installationId', 'workspaceId', 'agentId', 'versionConstraint', 'installedVersion', 'installedReleaseId', 'acceptedPermissions', 'status', 'installedAt', 'updatedAt', 'uninstalledAt'], 'Installation');
+  if (record.workspaceId !== workspaceId) throw new Error('Installation Workspace does not match the request');
+  const installationID = readIdentifier(record.installationId, 'installationId');
+  const agentID = readIdentifier(record.agentId, 'agentId');
+  const versionConstraint = readText(record.versionConstraint, 'versionConstraint');
+  const installedVersion = requireSemver(record.installedVersion, 'installedVersion');
+  if (!satisfiesSemverRange(installedVersion, versionConstraint)) throw new Error('installedVersion does not satisfy versionConstraint');
+  const acceptedPermissions = readStringArray(record.acceptedPermissions, 'acceptedPermissions');
+  if ([...acceptedPermissions].sort().join('\u0000') !== acceptedPermissions.join('\u0000')) throw new Error('acceptedPermissions must be sorted');
+  const status = requireEnum(record.status, ['enabled', 'disabled', 'uninstalled'], 'Installation status') as InstallationStatus;
+  const installedAt = requireDateValue(record.installedAt, 'installedAt');
+  const updatedAt = requireDateValue(record.updatedAt, 'updatedAt');
+  if (Date.parse(installedAt) > Date.parse(updatedAt)) throw new Error('Installation updatedAt must not precede installedAt');
+  const result: Installation = {
+    installationId: installationID,
+    workspaceId,
+    agentId: agentID,
+    versionConstraint,
+    installedVersion,
+    acceptedPermissions,
+    status,
+    installedAt,
+    updatedAt,
+  };
+  if ('installedReleaseId' in record) result.installedReleaseId = readIdentifier(record.installedReleaseId, 'installedReleaseId');
+  if (status === 'uninstalled') {
+    if (!('uninstalledAt' in record)) throw new Error('uninstalled Installation requires uninstalledAt');
+    const uninstalledAt = requireDateValue(record.uninstalledAt, 'uninstalledAt');
+    if (Date.parse(uninstalledAt) !== Date.parse(updatedAt)) throw new Error('uninstalledAt must equal updatedAt');
+    result.uninstalledAt = uninstalledAt;
+  } else if ('uninstalledAt' in record) {
+    throw new Error('active Installation must not contain uninstalledAt');
+  }
+  return result;
+}
+
+function validateInstallationList(value: unknown, workspaceId: string): InstallationList {
+  const record = requireRecord(value, 'Installation list');
+  assertAllowedKeys(record, ['items', 'nextCursor'], 'Installation list');
+  if (!Array.isArray(record.items)) throw new Error('Installation list items must be an array');
+  const result: InstallationList = {
+    items: record.items.map((item) => validateInstallation(item, workspaceId)),
+  };
+  if ('nextCursor' in record) result.nextCursor = readText(record.nextCursor, 'nextCursor');
+  return result;
+}
+
 export function toPlatformErrorView(error: unknown, _fallbackMessage: string): PlatformErrorView {
   if (error instanceof NekiroApiError) {
     return error.toView();
@@ -1213,6 +1270,13 @@ export function toPlatformErrorView(error: unknown, _fallbackMessage: string): P
     code: 'CLIENT_ERROR',
     message: error instanceof Error ? error.message : String(error),
   };
+}
+
+export function validateTrustedInstallation(value: Installation, release: AgentRelease, agentId: string): Installation {
+  if (value.agentId !== agentId || value.installedVersion !== release.agentCardVersion || value.installedReleaseId !== release.releaseId || value.status !== 'enabled') {
+    throw new NekiroApiError(200, 'NeKiro Installation did not preserve the preflight Release identity.', 'INVALID_RESPONSE');
+  }
+  return value;
 }
 
 function parseCapabilities(value: string): Record<string, unknown>[] {
@@ -1244,6 +1308,91 @@ function readIdentifier(value: unknown, field: string): string {
     throw new Error(field + ' must be a NeKiro safe identifier');
   }
   return text;
+}
+
+function isIpHostname(hostname: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':');
+}
+
+interface SemverParts {
+  major: number;
+  minor: number;
+  patch: number;
+  prerelease: string[];
+}
+
+function satisfiesSemverRange(version: string, range: string): boolean {
+  const parsedVersion = parseSemver(version);
+  if (!parsedVersion) return false;
+  return range.split('||').some((branch) => satisfiesSemverBranch(parsedVersion, branch));
+}
+
+function satisfiesSemverBranch(version: SemverParts, branch: string): boolean {
+  const tokens = branch.trim().split(/[\s,]+/).filter(Boolean);
+  if (tokens.length === 0) return false;
+  return tokens.every((token) => satisfiesSemverToken(version, token));
+}
+
+function satisfiesSemverToken(version: SemverParts, token: string): boolean {
+  if (token === '*' || token.toLowerCase() === 'x') return true;
+  const wildcard = /^(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?$/.exec(token);
+  if (wildcard) {
+    if (wildcard[1] === 'x' || wildcard[1] === 'X' || wildcard[1] === '*') return true;
+    if (version.major !== Number(wildcard[1])) return false;
+    if (wildcard[2] === undefined || ['x', 'X', '*'].includes(wildcard[2])) return true;
+    if (version.minor !== Number(wildcard[2])) return false;
+    return wildcard[3] === undefined || ['x', 'X', '*'].includes(wildcard[3]) || version.patch === Number(wildcard[3]);
+  }
+  const operatorMatch = /^(\^|~|>=|<=|>|<|=)?(.+)$/.exec(token);
+  if (!operatorMatch) return false;
+  const operator = operatorMatch[1] ?? '=';
+  const base = parseSemver(operatorMatch[2]);
+  if (!base) return false;
+  const comparison = compareSemver(version, base);
+  if (operator === '=') return comparison === 0;
+  if (operator === '>') return comparison > 0;
+  if (operator === '>=') return comparison >= 0;
+  if (operator === '<') return comparison < 0;
+  if (operator === '<=') return comparison <= 0;
+  if (operator === '^') {
+    const upper = base.major > 0
+      ? {major: base.major + 1, minor: 0, patch: 0, prerelease: []}
+      : base.minor > 0
+        ? {major: 0, minor: base.minor + 1, patch: 0, prerelease: []}
+        : {major: 0, minor: 0, patch: base.patch + 1, prerelease: []};
+    return compareSemver(version, base) >= 0 && compareSemver(version, upper) < 0;
+  }
+  const upper = {major: base.major, minor: base.minor + 1, patch: 0, prerelease: []};
+  return compareSemver(version, base) >= 0 && compareSemver(version, upper) < 0;
+}
+
+function parseSemver(value: string): SemverParts | undefined {
+  if (!isSemver(value)) return undefined;
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+  if (!match) return undefined;
+  return {major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4]?.split('.') ?? []};
+}
+
+function compareSemver(left: SemverParts, right: SemverParts): number {
+  for (const field of ['major', 'minor', 'patch'] as const) {
+    if (left[field] !== right[field]) return left[field] > right[field] ? 1 : -1;
+  }
+  if (left.prerelease.length === 0 && right.prerelease.length === 0) return 0;
+  if (left.prerelease.length === 0) return 1;
+  if (right.prerelease.length === 0) return -1;
+  for (let index = 0; index < Math.max(left.prerelease.length, right.prerelease.length); index += 1) {
+    const leftPart = left.prerelease[index];
+    const rightPart = right.prerelease[index];
+    if (leftPart === undefined) return -1;
+    if (rightPart === undefined) return 1;
+    if (leftPart === rightPart) continue;
+    const leftNumber = /^\d+$/.test(leftPart);
+    const rightNumber = /^\d+$/.test(rightPart);
+    if (leftNumber && rightNumber) return Number(leftPart) > Number(rightPart) ? 1 : -1;
+    if (leftNumber !== rightNumber) return leftNumber ? -1 : 1;
+    return leftPart > rightPart ? 1 : -1;
+  }
+  return 0;
 }
 
 function readStringArray(value: unknown, field: string): string[] {

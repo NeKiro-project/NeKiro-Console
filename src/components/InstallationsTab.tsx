@@ -1,7 +1,8 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {AlertTriangle, Database, Loader2, RefreshCw, ShieldCheck, Trash2} from 'lucide-react';
 
-import {toPlatformErrorView} from '../api/nekiro';
+import {NekiroApiError, toPlatformErrorView, type AgentRelease, type NekiroApiClient} from '../api/nekiro';
+import {agentKey, isCurrentRequest, matchesPublishedRelease, nextRequestGeneration} from '../consolePolicy';
 import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspace} from '../types';
 
 interface InstallationsTabProps {
@@ -11,10 +12,10 @@ interface InstallationsTabProps {
   loading: boolean;
   error: PlatformErrorView | null;
   searchQuery: string;
-  preselectedAgentId?: string;
-  onInstallAgent: (agent: Agent, versionConstraint: string, acceptedPermissions: string[]) => Promise<void>;
+  client: NekiroApiClient;
+  onInstallAgent: (agent: Agent, release: AgentRelease, acceptedPermissions: string[]) => Promise<void>;
   onUpdateInstallation: (installation: Installation, status: Exclude<InstallationStatus, 'uninstalled'>) => Promise<void>;
-  onUninstall: (installation: Installation) => Promise<void>;
+  onUninstall: (installation: Installation) => Promise<boolean>;
   onRefresh: () => void;
 }
 
@@ -25,30 +26,41 @@ export default function InstallationsTab({
   loading,
   error,
   searchQuery,
-  preselectedAgentId,
+  client,
   onInstallAgent,
   onUpdateInstallation,
   onUninstall,
   onRefresh,
 }: InstallationsTabProps) {
   const publishedAgents = useMemo(() => agents.filter((agent) => agent.status === 'published'), [agents]);
-  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [selectedAgentKey, setSelectedAgentKey] = useState('');
   const [versionConstraint, setVersionConstraint] = useState('');
   const [acceptedPermissions, setAcceptedPermissions] = useState<string[]>([]);
+  const [releaseId, setReleaseId] = useState('');
+  const [preflightRelease, setPreflightRelease] = useState<AgentRelease | null>(null);
+  const [preflightLoading, setPreflightLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState<PlatformErrorView | null>(null);
   const [confirmUninstallId, setConfirmUninstallId] = useState<string | null>(null);
+  const [busyLifecycle, setBusyLifecycle] = useState(false);
+  const preflightGeneration = useRef(0);
+
+  const invalidatePreflight = () => {
+    preflightGeneration.current = nextRequestGeneration(preflightGeneration.current);
+    setPreflightRelease(null);
+  };
 
   useEffect(() => {
-    const next = publishedAgents.find((agent) => agent.id === preselectedAgentId) ?? publishedAgents[0];
-    if (next && selectedAgentId === '') {
-      setSelectedAgentId(next.id);
+    if (!selectedAgentKey && publishedAgents[0]) {
+      const next = publishedAgents[0];
+      invalidatePreflight();
+      setSelectedAgentKey(agentKey(next));
       setVersionConstraint(next.version);
       setAcceptedPermissions(next.permissions.map((permission) => permission.id).sort());
     }
-  }, [preselectedAgentId, publishedAgents, selectedAgentId]);
+  }, [publishedAgents, selectedAgentKey]);
 
-  const selectedAgent = publishedAgents.find((agent) => agent.id === selectedAgentId);
+  const selectedAgent = publishedAgents.find((agent) => agentKey(agent) === selectedAgentKey);
   const filteredInstallations = installations.filter((installation) => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
@@ -63,20 +75,48 @@ export default function InstallationsTab({
     ].join(' ').toLowerCase().includes(query);
   });
 
-  const handleSelectAgent = (agentId: string) => {
-    const agent = publishedAgents.find((item) => item.id === agentId);
-    setSelectedAgentId(agentId);
+  const handleSelectAgent = (selectedKey: string) => {
+    const agent = publishedAgents.find((item) => agentKey(item) === selectedKey);
+    invalidatePreflight();
+    setSelectedAgentKey(selectedKey);
     setVersionConstraint(agent?.version ?? '');
     setAcceptedPermissions(agent?.permissions.map((permission) => permission.id).sort() ?? []);
+    setReleaseId('');
+    setPreflightRelease(null);
+    setLocalError(null);
+  };
+
+  const handlePreflight = async () => {
+    if (!selectedAgent) return;
+    const generation = nextRequestGeneration(preflightGeneration.current);
+    preflightGeneration.current = generation;
+    const requestedAgentKey = selectedAgentKey;
+    const requestedReleaseId = releaseId;
+    setPreflightLoading(true);
+    setLocalError(null);
+    try {
+      const value = await client.getAgentRelease(requestedReleaseId);
+      if (!isCurrentRequest(generation, preflightGeneration.current)) return;
+      if (!matchesPublishedRelease(value, selectedAgent)) throw new NekiroApiError(200, 'The selected Release is not a published match for the selected Agent Card.', 'INVALID_RESPONSE');
+      if (requestedAgentKey !== selectedAgentKey || requestedReleaseId !== releaseId) return;
+      setPreflightRelease(value);
+      setVersionConstraint(value.agentCardVersion);
+    } catch (value) {
+      if (!isCurrentRequest(generation, preflightGeneration.current)) return;
+      setPreflightRelease(null);
+      setLocalError(toPlatformErrorView(value, 'Unable to preflight the trusted Release.'));
+    } finally {
+      if (isCurrentRequest(generation, preflightGeneration.current)) setPreflightLoading(false);
+    }
   };
 
   const handleInstall = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!selectedAgent) return;
+    if (!selectedAgent || !preflightRelease) return;
     setSubmitting(true);
     setLocalError(null);
     try {
-      await onInstallAgent(selectedAgent, versionConstraint, acceptedPermissions);
+      await onInstallAgent(selectedAgent, preflightRelease, acceptedPermissions);
     } catch (installError) {
       setLocalError(toPlatformErrorView(installError, 'Unable to install Agent.'));
     } finally {
@@ -97,10 +137,10 @@ export default function InstallationsTab({
           <div className="font-mono-label text-[10px] uppercase tracking-[0.24em] text-brand-primary mb-2">Installations</div>
           <h2 className="text-2xl font-bold text-brand-on-surface">Workspace Agent Pins</h2>
           <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">
-            Install published Catalog versions into the current Workspace with explicit acceptedPermissions, then inspect and manage Installation v2 lifecycle facts.
+            Preflight an immutable published Release before installing its exact Card version into the current Workspace.
           </p>
         </div>
-        <button onClick={onRefresh} className="px-3 py-2 rounded bg-brand-container border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface flex items-center gap-2">
+         <button onClick={onRefresh} disabled={loading || busyLifecycle} className="px-3 py-2 rounded bg-brand-container border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface flex items-center gap-2 disabled:opacity-40">
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           Refresh
         </button>
@@ -119,22 +159,29 @@ export default function InstallationsTab({
           <div className="flex items-center gap-2 mb-4">
             <Database size={16} className="text-brand-primary" />
             <div>
-              <div className="text-sm font-bold text-brand-on-surface">Install published Agent</div>
-              <div className="text-xs text-brand-on-surface-variant">acceptedPermissions is always submitted, including explicit empty arrays.</div>
+              <div className="text-sm font-bold text-brand-on-surface">Install trusted Release</div>
+              <div className="text-xs text-brand-on-surface-variant">The Release ID is an explicit provider handoff; Catalog publication alone is not trust.</div>
             </div>
           </div>
 
           <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
             Published Agent
-            <select value={selectedAgentId} onChange={(event) => handleSelectAgent(event.target.value)} disabled={!workspace || publishedAgents.length === 0} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50">
+             <select value={selectedAgentKey} onChange={(event) => handleSelectAgent(event.target.value)} disabled={!workspace || publishedAgents.length === 0 || busyLifecycle} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50">
               {publishedAgents.length === 0 && <option value="">No published agents returned</option>}
-              {publishedAgents.map((agent) => <option key={agent.id + agent.version} value={agent.id}>{agent.name} ({agent.version})</option>)}
+               {publishedAgents.map((agent) => <option key={agentKey(agent)} value={agentKey(agent)}>{agent.name} ({agent.version})</option>)}
             </select>
           </label>
 
           <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
-            Version constraint
-            <input value={versionConstraint} onChange={(event) => setVersionConstraint(event.target.value)} disabled={!workspace} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50" />
+            Trusted Release ID
+            <div className="flex gap-2"><input value={releaseId} onChange={(event) => { invalidatePreflight(); setReleaseId(event.target.value); setLocalError(null); }} disabled={!workspace || preflightLoading || busyLifecycle} placeholder="release-id" className="flex-1 bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50" /><button type="button" onClick={handlePreflight} disabled={!workspace || !selectedAgent || !releaseId || preflightLoading || busyLifecycle} className="px-3 py-2 rounded border border-brand-outline-variant bg-brand-container text-xs text-brand-on-surface-variant disabled:opacity-40">{preflightLoading ? 'Reading...' : 'Preflight'}</button></div>
+          </label>
+
+          {preflightRelease && <div className="border border-green-400/30 bg-green-500/10 rounded-lg p-3 mb-3 text-xs text-brand-on-surface-variant"><div className="flex items-center gap-2 text-green-300 font-semibold"><ShieldCheck size={14} /> Published Release preflight passed</div><div className="grid grid-cols-2 gap-2 mt-3"><Fact label="Release" value={preflightRelease.releaseId} /><Fact label="Version" value={preflightRelease.agentCardVersion} /><Fact label="Card digest" value={preflightRelease.cardDigest} /><Fact label="Binding" value={preflightRelease.endpointBindingId} /><Fact label="Origin" value={preflightRelease.endpointOrigin} /><Fact label="Path" value={preflightRelease.endpointPath} /></div></div>}
+
+          <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
+            Exact version constraint
+            <input value={versionConstraint} readOnly className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none opacity-70" />
           </label>
 
           <div className="text-xs font-bold text-brand-on-surface mb-2">Declared permissions</div>
@@ -145,7 +192,7 @@ export default function InstallationsTab({
             )}
             {selectedAgent?.permissions.map((permission) => (
               <label key={permission.id} className="flex items-start gap-3 bg-brand-lowest border border-brand-outline-variant rounded p-3 cursor-pointer">
-                <input type="checkbox" checked={acceptedPermissions.includes(permission.id)} onChange={() => togglePermission(permission.id)} className="mt-1" />
+                <input type="checkbox" checked={acceptedPermissions.includes(permission.id)} onChange={() => togglePermission(permission.id)} disabled={busyLifecycle} className="mt-1" />
                 <span>
                   <span className="font-mono-code text-[11px] text-brand-primary block">{permission.id}</span>
                   <span className="text-xs text-brand-on-surface-variant">{permission.description}</span>
@@ -154,7 +201,7 @@ export default function InstallationsTab({
             ))}
           </div>
 
-          <button disabled={!workspace || !selectedAgent || submitting} className="w-full px-4 py-2 rounded bg-brand-primary text-brand-on-primary text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
+          <button disabled={!workspace || !selectedAgent || !preflightRelease || submitting || busyLifecycle} className="w-full px-4 py-2 rounded bg-brand-primary text-brand-on-primary text-xs font-semibold disabled:opacity-50 flex items-center justify-center gap-2">
             {submitting ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
             Install exact pin
           </button>
@@ -182,16 +229,17 @@ export default function InstallationsTab({
                   <Fact label="Pinned" value={installation.installedVersion} />
                   <Fact label="Updated" value={installation.updatedAt} />
                 </div>
+                <div className="grid grid-cols-1 gap-2 mt-2 text-xs"><Fact label="Installed Release" value={installation.installedReleaseId ?? 'not returned (legacy/untrusted record)'} /></div>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {installation.acceptedPermissions.length === 0
                     ? <span className="text-[10px] px-2 py-0.5 rounded bg-brand-container border border-brand-outline-variant text-brand-on-surface-variant">acceptedPermissions: []</span>
                     : installation.acceptedPermissions.map((permission) => <span key={permission} className="text-[10px] px-2 py-0.5 rounded bg-brand-container border border-brand-outline-variant text-brand-secondary">{permission}</span>)}
                 </div>
                 <div className="mt-3 flex gap-2">
-                  {installation.status === 'enabled' && <button onClick={() => onUpdateInstallation(installation, 'disabled')} className="px-3 py-1.5 rounded border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface">Disable</button>}
-                  {installation.status === 'disabled' && <button onClick={() => onUpdateInstallation(installation, 'enabled')} className="px-3 py-1.5 rounded border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface">Enable</button>}
-                  {installation.status === 'disabled' && confirmUninstallId !== installation.installationId && <button onClick={() => setConfirmUninstallId(installation.installationId)} className="px-3 py-1.5 rounded border border-brand-error/30 text-xs text-brand-error flex items-center gap-1.5"><Trash2 size={12} />Uninstall</button>}
-                  {installation.status === 'disabled' && confirmUninstallId === installation.installationId && <button onClick={() => onUninstall(installation)} className="px-3 py-1.5 rounded bg-brand-error-container text-xs text-brand-error">Confirm uninstall</button>}
+                  {installation.status === 'enabled' && <button disabled={busyLifecycle} onClick={() => runInstallationAction(installation, 'disabled')} className="px-3 py-1.5 rounded border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface disabled:opacity-40">Disable</button>}
+                  {installation.status === 'disabled' && <button disabled={busyLifecycle} onClick={() => runInstallationAction(installation, 'enabled')} className="px-3 py-1.5 rounded border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface disabled:opacity-40">Enable</button>}
+                  {installation.status === 'disabled' && confirmUninstallId !== installation.installationId && <button disabled={busyLifecycle} onClick={() => setConfirmUninstallId(installation.installationId)} className="px-3 py-1.5 rounded border border-brand-error/30 text-xs text-brand-error flex items-center gap-1.5 disabled:opacity-40"><Trash2 size={12} />Uninstall</button>}
+                  {installation.status === 'disabled' && confirmUninstallId === installation.installationId && <button disabled={busyLifecycle} onClick={() => runUninstall(installation)} className="px-3 py-1.5 rounded bg-brand-error-container text-xs text-brand-error disabled:opacity-40">Confirm uninstall</button>}
                   {installation.status === 'uninstalled' && <span className="text-xs text-brand-on-surface-variant">Uninstalled at {installation.uninstalledAt}</span>}
                 </div>
               </div>
@@ -201,6 +249,24 @@ export default function InstallationsTab({
       </div>
     </div>
   );
+
+  async function runInstallationAction(installation: Installation, status: Exclude<InstallationStatus, 'uninstalled'>) {
+    setBusyLifecycle(true);
+    try {
+      await onUpdateInstallation(installation, status);
+    } finally {
+      setBusyLifecycle(false);
+    }
+  }
+
+  async function runUninstall(installation: Installation) {
+    setBusyLifecycle(true);
+    try {
+      if (await onUninstall(installation)) setConfirmUninstallId(null);
+    } finally {
+      setBusyLifecycle(false);
+    }
+  }
 }
 
 function ErrorBanner({error}: {error: PlatformErrorView | null}) {

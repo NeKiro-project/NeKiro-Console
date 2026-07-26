@@ -1,24 +1,28 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {AnimatePresence, motion} from 'motion/react';
 import {CheckCircle2, Cpu, HelpCircle, ShieldAlert, X} from 'lucide-react';
 
-import {mapCatalogEntry, NekiroApiClient, toPlatformErrorView, type AgentCardV02} from './api/nekiro';
+import {mapCatalogEntry, NekiroApiClient, NekiroApiError, toPlatformErrorView, validateTrustedInstallation, type AgentCardV02, type AgentRelease} from './api/nekiro';
+import {agentKey, isCurrentRequest, matchesPublishedRelease, nextRequestGeneration} from './consolePolicy';
 import Header from './components/Header';
 import InstallationsTab from './components/InstallationsTab';
 import InvocationsTab from './components/InvocationsTab';
 import LedgerTab from './components/LedgerTab';
 import RegistryTab from './components/RegistryTab';
 import Sidebar from './components/Sidebar';
+import TrustedPublicationTab from './components/TrustedPublicationTab';
 import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspace} from './types';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'registry' | 'installations' | 'invocations' | 'ledger'>('registry');
+  const [activeTab, setActiveTab] = useState<'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger'>('registry');
   const [searchQuery, setSearchQuery] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [providerAgents, setProviderAgents] = useState<Agent[]>([]);
   const [draftAgents, setDraftAgents] = useState<Agent[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<PlatformErrorView | null>(null);
   const [catalogReady, setCatalogReady] = useState(false);
+  const [providerCatalogError, setProviderCatalogError] = useState<PlatformErrorView | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceDraft, setWorkspaceDraft] = useState(import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID ?? '');
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
@@ -26,51 +30,86 @@ export default function App() {
   const [installations, setInstallations] = useState<Installation[]>([]);
   const [installationLoading, setInstallationLoading] = useState(false);
   const [installationError, setInstallationError] = useState<PlatformErrorView | null>(null);
-  const [pendingInstallAgentId, setPendingInstallAgentId] = useState<string | undefined>();
   const [showSettings, setShowSettings] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
+  const catalogRequestGeneration = useRef(0);
+  const providerCatalogRequestGeneration = useRef(0);
+  const workspaceRequestGeneration = useRef(0);
+  const installationRequestGeneration = useRef(0);
 
-  const nekiroClient = useMemo(
+  const providerClient = useMemo(
     () => new NekiroApiClient({
       baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
-      token: import.meta.env.VITE_NEKIRO_TOKEN,
+      token: import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN,
+    }),
+    [],
+  );
+  const ownerClient = useMemo(
+    () => new NekiroApiClient({
+      baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
+      token: import.meta.env.VITE_NEKIRO_OWNER_TOKEN,
     }),
     [],
   );
 
   const loadAgents = useCallback(async (query = '') => {
+    const generation = nextRequestGeneration(catalogRequestGeneration.current);
+    catalogRequestGeneration.current = generation;
     setCatalogLoading(true);
     setCatalogError(null);
     try {
-      const response = await nekiroClient.searchAgents(query.trim() ? {query: query.trim()} : undefined);
+      const response = await ownerClient.searchAgents(query.trim() ? {query: query.trim()} : undefined);
+      if (!isCurrentRequest(generation, catalogRequestGeneration.current)) return;
       setAgents(response.items.map(mapCatalogEntry));
       setCatalogReady(true);
     } catch (error) {
+      if (!isCurrentRequest(generation, catalogRequestGeneration.current)) return;
       setCatalogError(toPlatformErrorView(error, 'Unable to load the NeKiro Catalog.'));
     } finally {
-      setCatalogLoading(false);
+      if (isCurrentRequest(generation, catalogRequestGeneration.current)) setCatalogLoading(false);
     }
-  }, [nekiroClient]);
+  }, [ownerClient]);
+
+  const loadProviderAgents = useCallback(async (query = '') => {
+    const generation = nextRequestGeneration(providerCatalogRequestGeneration.current);
+    providerCatalogRequestGeneration.current = generation;
+    setProviderCatalogError(null);
+    try {
+      const providerId = import.meta.env.VITE_NEKIRO_PROVIDER_ID;
+      const response = await providerClient.searchAgents({ownerId: providerId, ...(query.trim() ? {query: query.trim()} : {})});
+      if (!isCurrentRequest(generation, providerCatalogRequestGeneration.current)) return;
+      setProviderAgents(response.items.map(mapCatalogEntry).filter((agent) => agent.ownerId === providerId));
+    } catch (error) {
+      if (!isCurrentRequest(generation, providerCatalogRequestGeneration.current)) return;
+      setProviderCatalogError(toPlatformErrorView(error, 'Unable to load provider-owned Agent Cards.'));
+    }
+  }, [providerClient]);
 
   const loadWorkspace = useCallback(async (workspaceId: string) => {
+    const generation = nextRequestGeneration(workspaceRequestGeneration.current);
+    workspaceRequestGeneration.current = generation;
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
-      const value = await nekiroClient.getWorkspace(workspaceId);
+      const value = await ownerClient.getWorkspace(workspaceId);
+      if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return null;
       setWorkspace(value);
       setWorkspaceDraft(value.workspaceId);
       return value;
     } catch (error) {
+      if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return null;
       setWorkspace(null);
       setInstallations([]);
       setWorkspaceError(toPlatformErrorView(error, 'Unable to load Workspace.'));
       return null;
     } finally {
-      setWorkspaceLoading(false);
+      if (isCurrentRequest(generation, workspaceRequestGeneration.current)) setWorkspaceLoading(false);
     }
-  }, [nekiroClient]);
+  }, [ownerClient]);
 
   const loadInstallations = useCallback(async (workspaceId = workspace?.workspaceId) => {
+    const generation = nextRequestGeneration(installationRequestGeneration.current);
+    installationRequestGeneration.current = generation;
     if (!workspaceId) {
       setInstallations([]);
       return;
@@ -78,21 +117,24 @@ export default function App() {
     setInstallationLoading(true);
     setInstallationError(null);
     try {
-      const response = await nekiroClient.listInstallations(workspaceId, {limit: 100});
+      const response = await ownerClient.listInstallations(workspaceId, {limit: 100});
+      if (!isCurrentRequest(generation, installationRequestGeneration.current)) return;
       setInstallations(response.items);
     } catch (error) {
+      if (!isCurrentRequest(generation, installationRequestGeneration.current)) return;
       setInstallationError(toPlatformErrorView(error, 'Unable to load Workspace Installations.'));
     } finally {
-      setInstallationLoading(false);
+      if (isCurrentRequest(generation, installationRequestGeneration.current)) setInstallationLoading(false);
     }
-  }, [nekiroClient, workspace?.workspaceId]);
+  }, [ownerClient, workspace?.workspaceId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadAgents(searchQuery);
+      void loadProviderAgents(searchQuery);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [loadAgents, searchQuery]);
+  }, [loadAgents, loadProviderAgents, searchQuery]);
 
   useEffect(() => {
     const defaultWorkspaceId = import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID;
@@ -109,7 +151,7 @@ export default function App() {
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
-      const value = await nekiroClient.createWorkspace(workspaceDraft);
+      const value = await ownerClient.createWorkspace(workspaceDraft);
       setWorkspace(value);
       setWorkspaceDraft(value.workspaceId);
       await loadInstallations(value.workspaceId);
@@ -128,39 +170,32 @@ export default function App() {
   };
 
   const handleRegisterAgent = async (card: AgentCardV02) => {
-    const entry = await nekiroClient.registerAgent(card);
+    const entry = await providerClient.registerAgent(card);
     const draftAgent = mapCatalogEntry(entry);
     setDraftAgents((current) => upsertAgent(current, draftAgent));
-    await loadAgents(searchQuery);
+    await Promise.all([loadAgents(searchQuery), loadProviderAgents(searchQuery)]);
     return draftAgent;
   };
 
   const handlePublishAgent = async (agent: Agent) => {
-    await nekiroClient.publishAgentVersion(agent.id, agent.version);
+    await providerClient.publishAgentVersion(agent.id, agent.version);
     setDraftAgents((current) => current.filter((draft) => agentKey(draft) !== agentKey(agent)));
-    await loadAgents(searchQuery);
+    await Promise.all([loadAgents(searchQuery), loadProviderAgents(searchQuery)]);
   };
 
-  const handleDisableAgent = async (agent: Agent) => {
-    await nekiroClient.disableAgentVersion(agent.id, agent.version);
-    await loadAgents(searchQuery);
-  };
-
-  const handleOpenInstall = (agent: Agent) => {
-    setPendingInstallAgentId(agent.id);
-    setActiveTab('installations');
-    setSearchQuery('');
-  };
-
-  const handleInstallAgent = async (agent: Agent, versionConstraint: string, acceptedPermissions: string[]) => {
+  const handleInstallAgent = async (agent: Agent, release: AgentRelease, acceptedPermissions: string[]) => {
     if (!workspace) {
       throw new Error('Select or create a Workspace before installing an Agent.');
     }
-    await nekiroClient.installAgent(workspace.workspaceId, {
+    if (!matchesPublishedRelease(release, agent)) {
+      throw new NekiroApiError(0, 'The selected Release is not a published match for the selected Agent Card.', 'INVALID_RESPONSE');
+    }
+    const installation = await ownerClient.installAgent(workspace.workspaceId, {
       agentId: agent.id,
-      versionConstraint,
+      versionConstraint: release.agentCardVersion,
       acceptedPermissions,
     });
+    validateTrustedInstallation(installation, release, agent.id);
     await loadInstallations(workspace.workspaceId);
   };
 
@@ -170,7 +205,7 @@ export default function App() {
     }
     setInstallationError(null);
     try {
-      await nekiroClient.updateInstallation(workspace.workspaceId, installation.installationId, status);
+      await ownerClient.updateInstallation(workspace.workspaceId, installation.installationId, status);
       await loadInstallations(workspace.workspaceId);
     } catch (error) {
       setInstallationError(toPlatformErrorView(error, 'Unable to update Installation.'));
@@ -179,14 +214,16 @@ export default function App() {
 
   const handleUninstall = async (installation: Installation) => {
     if (!workspace) {
-      return;
+      return false;
     }
     setInstallationError(null);
     try {
-      await nekiroClient.uninstallAgent(workspace.workspaceId, installation.installationId);
+      await ownerClient.uninstallAgent(workspace.workspaceId, installation.installationId);
       await loadInstallations(workspace.workspaceId);
+      return true;
     } catch (error) {
       setInstallationError(toPlatformErrorView(error, 'Unable to uninstall Agent.'));
+      return false;
     }
   };
 
@@ -194,6 +231,8 @@ export default function App() {
     switch (activeTab) {
       case 'registry':
         return 'Search agent name, description, capability...';
+      case 'trusted':
+        return 'Filter registered Agent Cards...';
       case 'installations':
         return 'Search installation id, agent id, pinned version...';
       case 'invocations':
@@ -233,8 +272,8 @@ export default function App() {
         workspaceError={workspaceError}
         onReadWorkspace={handleReadWorkspace}
         onCreateWorkspace={handleCreateWorkspace}
-        userLabel={import.meta.env.VITE_NEKIRO_OWNER_NAME ?? import.meta.env.VITE_NEKIRO_OWNER_ID ?? ''}
-        apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL)}
+        userLabel={workspace?.ownerId ?? 'Workspace owner'}
+        apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL && import.meta.env.VITE_NEKIRO_PROVIDER_ID && import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN && import.meta.env.VITE_NEKIRO_OWNER_TOKEN)}
       />
 
       <main className="ml-64 mt-16 w-[calc(100vw-256px)] h-[calc(100vh-64px)] overflow-y-auto bg-brand-bg p-7 relative">
@@ -246,14 +285,25 @@ export default function App() {
                 draftAgents={draftAgents}
                 onRegisterAgent={handleRegisterAgent}
                 onPublishAgent={handlePublishAgent}
-                onDisableAgent={handleDisableAgent}
-                onOpenInstall={handleOpenInstall}
                 catalogLoading={catalogLoading}
                 catalogError={catalogError}
                 catalogReady={catalogReady}
-                defaultOwnerId={import.meta.env.VITE_NEKIRO_OWNER_ID ?? ''}
-                defaultOwnerName={import.meta.env.VITE_NEKIRO_OWNER_NAME ?? ''}
+                defaultOwnerId={import.meta.env.VITE_NEKIRO_PROVIDER_ID ?? ''}
+                defaultOwnerName={import.meta.env.VITE_NEKIRO_PROVIDER_NAME ?? ''}
                 searchQuery={searchQuery}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === 'trusted' && (
+            <motion.div key="trusted" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+              <TrustedPublicationTab
+                providerId={import.meta.env.VITE_NEKIRO_PROVIDER_ID ?? ''}
+                client={providerClient}
+                agents={providerAgents}
+                draftAgents={draftAgents}
+                providerCatalogError={providerCatalogError}
+                onRefresh={() => void loadProviderAgents(searchQuery)}
               />
             </motion.div>
           )}
@@ -267,7 +317,7 @@ export default function App() {
                 loading={installationLoading}
                 error={installationError}
                 searchQuery={searchQuery}
-                preselectedAgentId={pendingInstallAgentId}
+                client={ownerClient}
                 onInstallAgent={handleInstallAgent}
                 onUpdateInstallation={handleUpdateInstallation}
                 onUninstall={handleUninstall}
@@ -278,13 +328,13 @@ export default function App() {
 
           {activeTab === 'invocations' && (
             <motion.div key="invocations" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <InvocationsTab workspace={workspace} installations={installations} client={nekiroClient} />
+              <InvocationsTab workspace={workspace} installations={installations} client={ownerClient} />
             </motion.div>
           )}
 
           {activeTab === 'ledger' && (
             <motion.div key="ledger" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <LedgerTab workspace={workspace} client={nekiroClient} />
+              <LedgerTab workspace={workspace} client={ownerClient} />
             </motion.div>
           )}
         </AnimatePresence>
@@ -294,7 +344,8 @@ export default function App() {
         <Overlay title="Control Plane Settings" icon={<Cpu size={22} />} onClose={() => setShowSettings(false)}>
           <div className="space-y-3 text-sm text-brand-on-surface-variant">
             <p>Base URL: <span className="font-mono-code text-brand-on-surface">{import.meta.env.VITE_NEKIRO_API_BASE_URL || 'not configured'}</span></p>
-            <p>Token source: <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_TOKEN</span> (never persisted in local storage)</p>
+            <p>Provider context: <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_PROVIDER_ID</span> + <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_PROVIDER_TOKEN</span></p>
+            <p>Workspace owner context: <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_OWNER_TOKEN</span> (credentials are never persisted in local storage)</p>
             <p>Default Workspace: <span className="font-mono-code text-brand-on-surface">{import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID || 'manual selection'}</span></p>
           </div>
         </Overlay>
@@ -338,8 +389,4 @@ function Overlay({title, icon, children, onClose}: {title: string; icon: React.R
 
 function upsertAgent(agents: Agent[], next: Agent): Agent[] {
   return [next, ...agents.filter((agent) => agentKey(agent) !== agentKey(next))];
-}
-
-function agentKey(agent: Agent): string {
-  return agent.id + '@' + agent.version;
 }

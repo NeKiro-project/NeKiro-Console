@@ -1,9 +1,9 @@
 import React from 'react';
-import { Database, Cpu, PlayCircle, BookOpen, Settings, HelpCircle, Terminal } from 'lucide-react';
+import { Database, Cpu, PlayCircle, BookOpen, Settings, HelpCircle, Terminal, ShieldCheck } from 'lucide-react';
 
 interface SidebarProps {
-  activeTab: 'registry' | 'installations' | 'invocations' | 'ledger';
-  setActiveTab: (tab: 'registry' | 'installations' | 'invocations' | 'ledger') => void;
+  activeTab: 'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger';
+  setActiveTab: (tab: 'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger') => void;
   onOpenSettings?: () => void;
   onOpenSupport?: () => void;
 }
@@ -11,6 +11,7 @@ interface SidebarProps {
 export default function Sidebar({ activeTab, setActiveTab, onOpenSettings, onOpenSupport }: SidebarProps) {
   const navItems = [
     { id: 'registry', name: 'Registry', icon: Database },
+    { id: 'trusted', name: 'Trusted Publication', icon: ShieldCheck },
     { id: 'installations', name: 'Installations', icon: Cpu },
     { id: 'invocations', name: 'Invocations', icon: PlayCircle },
     { id: 'ledger', name: 'Ledger', icon: BookOpen },

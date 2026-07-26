@@ -34,6 +34,7 @@ export interface Installation {
   agentId: string;
   versionConstraint: string;
   installedVersion: string;
+  installedReleaseId?: string;
   acceptedPermissions: string[];
   status: InstallationStatus;
   installedAt: string;

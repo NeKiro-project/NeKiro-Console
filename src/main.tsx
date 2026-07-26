@@ -37,7 +37,7 @@ class ConfigurationBoundary extends Component<{children: ReactNode}, {error: Err
 
   render() {
     if (this.state.error) {
-      return <div className="fixed inset-0 grid place-items-center bg-slate-950 p-6 text-slate-100"><div className="max-w-lg rounded-xl border border-red-400/30 bg-red-400/10 p-6"><h1 className="text-lg font-semibold">Console startup error</h1><p className="mt-2 text-sm text-red-100">{this.state.error.message}</p><p className="mt-4 text-xs text-slate-300">If this is a local configuration issue, set VITE_NEKIRO_API_BASE_URL and VITE_NEKIRO_TOKEN, then reload.</p></div></div>;
+      return <div className="fixed inset-0 grid place-items-center bg-slate-950 p-6 text-slate-100"><div className="max-w-lg rounded-xl border border-red-400/30 bg-red-400/10 p-6"><h1 className="text-lg font-semibold">Console startup error</h1><p className="mt-2 text-sm text-red-100">{this.state.error.message}</p><p className="mt-4 text-xs text-slate-300">Set VITE_NEKIRO_API_BASE_URL, VITE_NEKIRO_PROVIDER_ID, VITE_NEKIRO_PROVIDER_TOKEN, and VITE_NEKIRO_OWNER_TOKEN, then reload.</p></div></div>;
     }
     return this.props.children;
   }

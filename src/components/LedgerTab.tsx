@@ -1,7 +1,8 @@
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {BookOpen, GitBranch, LoaderCircle, Search, ShieldAlert} from 'lucide-react';
 
 import {NekiroApiClient, toPlatformErrorView, type InvocationDetailResponseV4, type TraceResponseV4} from '../api/nekiro';
+import {isCurrentRequest, nextRequestGeneration} from '../consolePolicy';
 import type {PlatformErrorView, Workspace} from '../types';
 
 export default function LedgerTab({workspace, client}: {workspace: Workspace | null; client: NekiroApiClient}) {
@@ -11,26 +12,40 @@ export default function LedgerTab({workspace, client}: {workspace: Workspace | n
   const [trace, setTrace] = useState<TraceResponseV4 | null>(null);
   const [error, setError] = useState<PlatformErrorView | null>(null);
   const [loading, setLoading] = useState(false);
+  const requestGeneration = useRef(0);
+
+  useEffect(() => {
+    requestGeneration.current = nextRequestGeneration(requestGeneration.current);
+    setLoading(false);
+    setDetail(null);
+    setTrace(null);
+    setError(null);
+  }, [workspace?.workspaceId]);
 
   const read = async (kind: 'invocation' | 'trace') => {
     if (!workspace) {
       setError({status: 0, code: 'CONFIGURATION_ERROR', message: 'Select the active Workspace first.'});
       return;
     }
+    const generation = nextRequestGeneration(requestGeneration.current);
+    requestGeneration.current = generation;
+    const workspaceId = workspace.workspaceId;
     setLoading(true);
     setError(null);
     try {
       if (kind === 'invocation') {
         setTrace(null);
-        setDetail(await client.getInvocation(workspace.workspaceId, invocationId));
+        const value = await client.getInvocation(workspaceId, invocationId);
+        if (isCurrentRequest(generation, requestGeneration.current)) setDetail(value);
       } else {
         setDetail(null);
-        setTrace(await client.getTrace(workspace.workspaceId, traceId));
+        const value = await client.getTrace(workspaceId, traceId);
+        if (isCurrentRequest(generation, requestGeneration.current)) setTrace(value);
       }
     } catch (value) {
-      setError(toPlatformErrorView(value, 'Ledger read failed.'));
+      if (isCurrentRequest(generation, requestGeneration.current)) setError(toPlatformErrorView(value, 'Ledger read failed.'));
     } finally {
-      setLoading(false);
+      if (isCurrentRequest(generation, requestGeneration.current)) setLoading(false);
     }
   };
 
@@ -45,9 +60,9 @@ export default function LedgerTab({workspace, client}: {workspace: Workspace | n
         <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-5 h-fit">
           <div className="flex items-center gap-2 text-sm font-bold mb-4"><Search size={16} className="text-brand-primary" /> Read metadata</div>
           <label className="block text-xs text-brand-on-surface-variant mb-1">Invocation ID</label>
-          <div className="flex gap-2"><input value={invocationId} onChange={(event) => setInvocationId(event.target.value)} placeholder="inv-..." className="min-w-0 flex-1 rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none" /><button disabled={!workspace || !invocationId || loading} onClick={() => void read('invocation')} className="rounded-lg border border-brand-outline-variant px-3 text-xs text-brand-on-surface hover:bg-brand-high disabled:opacity-40">Read</button></div>
+          <div className="flex gap-2"><input value={invocationId} onChange={(event) => setInvocationId(event.target.value)} disabled={loading} placeholder="inv-..." className="min-w-0 flex-1 rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none disabled:opacity-40" /><button disabled={!workspace || !invocationId || loading} onClick={() => void read('invocation')} className="rounded-lg border border-brand-outline-variant px-3 text-xs text-brand-on-surface hover:bg-brand-high disabled:opacity-40">Read</button></div>
           <label className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Trace ID</label>
-          <div className="flex gap-2"><input value={traceId} onChange={(event) => setTraceId(event.target.value)} placeholder="trace-..." className="min-w-0 flex-1 rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none" /><button disabled={!workspace || !traceId || loading} onClick={() => void read('trace')} className="rounded-lg border border-brand-outline-variant px-3 text-xs text-brand-on-surface hover:bg-brand-high disabled:opacity-40">Read</button></div>
+          <div className="flex gap-2"><input value={traceId} onChange={(event) => setTraceId(event.target.value)} disabled={loading} placeholder="trace-..." className="min-w-0 flex-1 rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none disabled:opacity-40" /><button disabled={!workspace || !traceId || loading} onClick={() => void read('trace')} className="rounded-lg border border-brand-outline-variant px-3 text-xs text-brand-on-surface hover:bg-brand-high disabled:opacity-40">Read</button></div>
           {loading && <div className="mt-4 flex items-center gap-2 text-xs text-brand-on-surface-variant"><LoaderCircle size={14} className="animate-spin" /> Reading Router Ledger...</div>}
           {error && <div className="mt-4 rounded-lg border border-red-400/25 bg-red-400/10 p-3 text-xs text-red-200"><ShieldAlert size={14} className="inline mr-2" />{error.message}</div>}
         </section>

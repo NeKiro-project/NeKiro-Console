@@ -1,7 +1,8 @@
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {Activity, CheckCircle2, LoaderCircle, Play, Radio, ShieldAlert} from 'lucide-react';
 
 import {NekiroApiClient, toPlatformErrorView, type InvocationResultStreamEventV2} from '../api/nekiro';
+import {isCurrentRequest, isTrustedEnabledInstallation, nextRequestGeneration} from '../consolePolicy';
 import type {Installation, PlatformErrorView, Workspace} from '../types';
 
 interface InvocationsTabProps {
@@ -11,8 +12,8 @@ interface InvocationsTabProps {
 }
 
 export default function InvocationsTab({workspace, installations, client}: InvocationsTabProps) {
-  const enabled = useMemo(() => installations.filter((item) => item.status === 'enabled'), [installations]);
-  const [agentId, setAgentId] = useState('');
+  const enabled = useMemo(() => installations.filter(isTrustedEnabledInstallation), [installations]);
+  const [installationId, setInstallationId] = useState('');
   const [capability, setCapability] = useState('');
   const [input, setInput] = useState('{\n  "message": "hello"\n}');
   const [stream, setStream] = useState(false);
@@ -20,10 +21,35 @@ export default function InvocationsTab({workspace, installations, client}: Invoc
   const [result, setResult] = useState<unknown>(null);
   const [error, setError] = useState<PlatformErrorView | null>(null);
   const [loading, setLoading] = useState(false);
+  const requestGeneration = useRef(0);
+
+  useEffect(() => {
+    requestGeneration.current = nextRequestGeneration(requestGeneration.current);
+    setLoading(false);
+    setResult(null);
+    setEvents([]);
+    setError(null);
+    if (installationId && !enabled.some((item) => item.installationId === installationId)) {
+      setInstallationId('');
+      setCapability('');
+    }
+  }, [workspace?.workspaceId]);
+
+  useEffect(() => {
+    if (installationId && !enabled.some((item) => item.installationId === installationId)) {
+      setInstallationId('');
+      setCapability('');
+    }
+  }, [enabled, installationId]);
 
   const run = async () => {
     if (!workspace) {
       setError({status: 0, code: 'CONFIGURATION_ERROR', message: 'Select the active Workspace first.'});
+      return;
+    }
+    const installation = enabled.find((item) => item.installationId === installationId);
+    if (!installation) {
+      setError({status: 0, code: 'INSTALLATION_DISABLED', message: 'Select an enabled trusted Installation before invoking.'});
       return;
     }
     let parsed: unknown;
@@ -37,22 +63,26 @@ export default function InvocationsTab({workspace, installations, client}: Invoc
       setError({status: 0, code: 'VALIDATION_ERROR', message: 'Input must be a JSON object.'});
       return;
     }
+    const generation = nextRequestGeneration(requestGeneration.current);
+    requestGeneration.current = generation;
+    const workspaceId = workspace.workspaceId;
     setLoading(true);
     setError(null);
     setResult(null);
     setEvents([]);
     try {
       if (stream) {
-        await client.invokeStream(workspace.workspaceId, {agentId, capability, input: parsed as Record<string, unknown>}, (event) => {
-          setEvents((current) => [...current, event]);
+        await client.invokeStream(workspaceId, {agentId: installation.agentId, capability, input: parsed as Record<string, unknown>}, (event) => {
+          if (isCurrentRequest(generation, requestGeneration.current)) setEvents((current) => [...current, event]);
         });
       } else {
-        setResult(await client.invoke(workspace.workspaceId, {agentId, capability, input: parsed as Record<string, unknown>, stream: false}));
+        const value = await client.invoke(workspaceId, {agentId: installation.agentId, capability, input: parsed as Record<string, unknown>, stream: false});
+        if (isCurrentRequest(generation, requestGeneration.current)) setResult(value);
       }
     } catch (value) {
-      setError(toPlatformErrorView(value, 'Invocation failed.'));
+      if (isCurrentRequest(generation, requestGeneration.current)) setError(toPlatformErrorView(value, 'Invocation failed.'));
     } finally {
-      setLoading(false);
+      if (isCurrentRequest(generation, requestGeneration.current)) setLoading(false);
     }
   };
 
@@ -67,8 +97,8 @@ export default function InvocationsTab({workspace, installations, client}: Invoc
         <DispatchForm
           workspace={workspace}
           enabled={enabled}
-          agentId={agentId}
-          setAgentId={(value) => { setAgentId(value); setCapability(''); }}
+          installationId={installationId}
+          setInstallationId={(value) => { setInstallationId(value); setCapability(''); }}
           capability={capability}
           setCapability={setCapability}
           input={input}
@@ -84,11 +114,11 @@ export default function InvocationsTab({workspace, installations, client}: Invoc
   );
 }
 
-function DispatchForm({workspace, enabled, agentId, setAgentId, capability, setCapability, input, setInput, stream, setStream, loading, onSubmit}: {
+function DispatchForm({workspace, enabled, installationId, setInstallationId, capability, setCapability, input, setInput, stream, setStream, loading, onSubmit}: {
   workspace: Workspace | null;
   enabled: Installation[];
-  agentId: string;
-  setAgentId: (value: string) => void;
+  installationId: string;
+  setInstallationId: (value: string) => void;
   capability: string;
   setCapability: (value: string) => void;
   input: string;
@@ -102,16 +132,16 @@ function DispatchForm({workspace, enabled, agentId, setAgentId, capability, setC
     <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-5 h-fit">
       <div className="flex items-center gap-2 text-sm font-bold mb-4"><Play size={16} className="text-brand-primary" /> Dispatch request</div>
       <label className="block text-xs text-brand-on-surface-variant mb-1">Installed Agent</label>
-      <select value={agentId} onChange={(event) => setAgentId(event.target.value)} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none">
+      <select value={installationId} onChange={(event) => setInstallationId(event.target.value)} disabled={loading} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none disabled:opacity-40">
         <option value="">Select enabled installation</option>
-        {enabled.map((item) => <option key={item.installationId} value={item.agentId}>{item.agentId} @ {item.installedVersion}</option>)}
+        {enabled.map((item) => <option key={item.installationId} value={item.installationId}>{item.agentId} @ {item.installedVersion} / {item.installedReleaseId}</option>)}
       </select>
       <label className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Capability</label>
-      <input value={capability} onChange={(event) => setCapability(event.target.value)} placeholder="Enter declared capability" className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none" />
+      <input value={capability} onChange={(event) => setCapability(event.target.value)} disabled={loading} placeholder="Enter declared capability" className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none disabled:opacity-40" />
       <label className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Input JSON</label>
-      <textarea value={input} onChange={(event) => setInput(event.target.value)} rows={7} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none resize-y" />
-      <label className="flex items-center gap-2 mt-3 text-xs text-brand-on-surface-variant"><input type="checkbox" checked={stream} onChange={(event) => setStream(event.target.checked)} /> Stream result over SSE</label>
-      <button disabled={loading || !workspace || !agentId || !capability} onClick={onSubmit} className="mt-4 w-full rounded-lg bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{loading ? 'Invoking...' : 'Invoke'}</button>
+      <textarea value={input} onChange={(event) => setInput(event.target.value)} disabled={loading} rows={7} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none resize-y disabled:opacity-40" />
+      <label className="flex items-center gap-2 mt-3 text-xs text-brand-on-surface-variant"><input type="checkbox" checked={stream} onChange={(event) => setStream(event.target.checked)} disabled={loading} /> Stream result over SSE</label>
+      <button disabled={loading || !workspace || !installationId || !capability} onClick={onSubmit} className="mt-4 w-full rounded-lg bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{loading ? 'Invoking...' : 'Invoke'}</button>
       {!workspace && <p className="mt-3 text-xs text-amber-300">Select the active Workspace before invoking.</p>}
     </section>
   );
