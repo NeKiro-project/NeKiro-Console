@@ -10,7 +10,8 @@
     "clean": "rm -rf dist server.js",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/api/nekiro.test.ts src/consolePolicy.test.ts src/components/consoleSurface.test.tsx"
+    "test": "tsx --test src/api/nekiro.test.ts src/consolePolicy.test.ts src/components/consoleSurface.test.tsx src/demos/routing.test.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -24,6 +25,7 @@
   "devDependencies": {
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "@playwright/test": "^1.52.0",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

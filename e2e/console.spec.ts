@@ -1,0 +1,212 @@
+import {execFileSync} from 'node:child_process';
+
+import {expect, test, type Locator, type Page} from '@playwright/test';
+
+const providerId = required('VITE_NEKIRO_PROVIDER_ID');
+const workspaceId = required('VITE_NEKIRO_DEFAULT_WORKSPACE_ID');
+const composeFile = required('NEKIRO_E2E_COMPOSE_FILE');
+const composeProject = required('NEKIRO_E2E_COMPOSE_PROJECT');
+
+type AgentFixture = {
+  id: string;
+  name: string;
+  endpoint: string;
+  service: string;
+  capability: string;
+};
+
+type ReleaseEvidence = {
+  releaseId: string;
+  cardDigest: string;
+};
+
+const runtimeA: AgentFixture = {
+  id: 'browser-runtime-a',
+  name: 'Browser Runtime A',
+  endpoint: 'http://runtime-a:8091',
+  service: 'runtime-a',
+  capability: 'runtime.echo',
+};
+
+const runtimeB: AgentFixture = {
+  id: 'browser-runtime-b',
+  name: 'Browser Runtime B',
+  endpoint: 'http://runtime-b:8092',
+  service: 'runtime-b',
+  capability: 'runtime.cross',
+};
+
+test.describe.configure({mode: 'serial'});
+
+test('production Console completes trusted publication, invocation, trace, and isolated demos', async ({page}) => {
+  const apiRequests: string[] = [];
+  page.on('request', (request) => {
+    if (/\/v[34]\//.test(request.url())) apiRequests.push(request.url());
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
+  await expect(page.getByText('API: configured', {exact: true})).toBeVisible();
+
+  await createWorkspace(page);
+  await registerCard(page, runtimeA);
+  await registerCard(page, runtimeB);
+
+  const releaseA = await publishTrustedRelease(page, runtimeA);
+  const releaseB = await publishTrustedRelease(page, runtimeB);
+
+  await page.reload();
+  await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
+  await installRelease(page, runtimeA, releaseA.releaseId);
+  await installRelease(page, runtimeB, releaseB.releaseId);
+
+  await page.getByRole('button', {name: 'Installations', exact: true}).click();
+  await page.getByLabel('Trusted Release ID', {exact: true}).fill('release-does-not-exist');
+  await page.getByRole('button', {name: 'Preflight', exact: true}).click();
+  await expect(page.getByText(/NOT_FOUND/)).toBeVisible();
+
+  await page.getByRole('button', {name: 'Invocations', exact: true}).click();
+  const installationSelect = page.getByLabel('Installed Agent', {exact: true});
+  await selectOptionContaining(installationSelect, runtimeB.id);
+  await page.getByLabel('Capability', {exact: true}).fill(runtimeB.capability);
+  await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'nested', value: {message: 'browser-json'}}));
+  await page.getByRole('button', {name: 'Invoke', exact: true}).click();
+
+  const response = page.locator('pre').filter({hasText: 'invocationId'}).last();
+  await expect(response).toContainText('runtime-a');
+  const result = JSON.parse((await response.textContent()) ?? '{}') as {invocationId: string; rootTaskId: string; traceId: string};
+  expect(result.invocationId).toBeTruthy();
+  expect(result.rootTaskId).toBeTruthy();
+  expect(result.traceId).toBeTruthy();
+
+  await page.getByRole('button', {name: 'Invocations', exact: true}).click();
+  await selectOptionContaining(installationSelect, runtimeA.id);
+  await page.getByLabel('Capability', {exact: true}).fill(runtimeA.capability);
+  await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'stream-success', value: 'browser-sse'}));
+  await page.getByLabel('Stream result over SSE', {exact: true}).check();
+  await page.getByRole('button', {name: 'Invoke', exact: true}).click();
+  await expect(page.getByText('#0 accepted', {exact: true})).toBeVisible();
+  await expect(page.getByText(/completed/, {exact: true}).last()).toBeVisible();
+
+  await page.getByRole('button', {name: 'Ledger', exact: true}).click();
+  await page.getByLabel('Trace ID', {exact: true}).fill(result.traceId);
+  await page.getByRole('button', {name: 'Read', exact: true}).last().click();
+  await expect(page.getByText(new RegExp(`${escapeRegExp(result.traceId)}`)).last()).toBeVisible();
+  const ledgerText = await page.locator('main').innerText();
+  expect(ledgerText).toContain(runtimeA.id);
+  expect(ledgerText).toContain(runtimeB.id);
+  expect(ledgerText).toContain(result.invocationId);
+  expect(ledgerText).toContain(releaseA.releaseId);
+  expect(ledgerText).toContain(releaseB.releaseId);
+  expect(ledgerText).toContain(releaseA.cardDigest);
+  expect(ledgerText).toContain(releaseB.cardDigest);
+
+  apiRequests.length = 0;
+  for (const hash of ['#/demo', '#/demo/glass', '#/demo/terminal', '#/demo/saas']) {
+    await page.goto('/' + hash);
+    await expect(page.locator('body')).not.toContainText('Agent Card Catalog');
+  }
+  expect(apiRequests).toEqual([]);
+});
+
+async function createWorkspace(page: Page): Promise<void> {
+  const input = page.locator('input[placeholder="workspace id"]');
+  await input.fill(workspaceId);
+  await page.getByRole('button', {name: 'Create workspace'}).click();
+  await expect(page.getByText(`Workspace: ${workspaceId}`, {exact: true})).toBeVisible();
+}
+
+async function registerCard(page: Page, fixture: AgentFixture): Promise<void> {
+  await page.getByRole('button', {name: 'Registry', exact: true}).click();
+  await page.getByRole('button', {name: 'Register Agent Card', exact: true}).click();
+  await page.getByLabel('Agent ID', {exact: true}).fill(fixture.id);
+  await page.getByLabel('Name', {exact: true}).fill(fixture.name);
+  await page.getByLabel('Owner ID', {exact: true}).fill(providerId);
+  await page.getByLabel('Owner display name', {exact: true}).fill('Browser Provider');
+  await page.getByLabel('Version', {exact: true}).fill('1.0.0');
+  await page.getByLabel('A2A endpoint', {exact: true}).fill(fixture.endpoint);
+  await page.getByLabel('Authentication', {exact: true}).selectOption('http_bearer');
+  await page.getByLabel('Capabilities JSON', {exact: true}).fill(JSON.stringify({capabilities: [
+    {id: fixture.capability, name: fixture.capability, description: 'Browser acceptance capability', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: []},
+  ]}, null, 2));
+  await page.getByRole('button', {name: 'Submit draft', exact: true}).click();
+  await expect(page.getByText(fixture.id, {exact: true}).first()).toBeVisible();
+}
+
+async function publishTrustedRelease(page: Page, fixture: AgentFixture): Promise<ReleaseEvidence> {
+  await page.getByRole('button', {name: 'Trusted Publication', exact: true}).click();
+  await page.getByRole('button', {name: new RegExp(escapeRegExp(fixture.id))}).first().click();
+  await page.getByLabel('Agent endpoint', {exact: true}).fill(fixture.endpoint);
+  await page.getByRole('button', {name: 'Create Binding', exact: true}).click();
+  await expect(page.getByText('pending', {exact: true}).last()).toBeVisible();
+
+  await page.getByRole('button', {name: 'Issue Challenge', exact: true}).click();
+  const challengeId = await textMatching(page, /^challenge-[A-Za-z0-9._:-]+$/);
+  const proof = (await page.locator('code').last().textContent())?.trim();
+  if (!proof) throw new Error('Console did not render the one-time challenge proof');
+  const persistedValues = await page.evaluate(() => [
+    ...Object.entries(localStorage),
+    ...Object.entries(sessionStorage),
+  ].flat());
+  expect(persistedValues).not.toContain(proof);
+  injectChallengeProof(fixture.service, challengeId, proof);
+  await page.getByRole('button', {name: 'Complete Verification', exact: true}).click();
+  await expect(page.getByText('verified', {exact: true}).last()).toBeVisible();
+  await expect(page.locator('code')).toHaveCount(0);
+
+  await page.getByRole('button', {name: 'Create Release', exact: true}).click();
+  await page.getByRole('button', {name: 'Verify', exact: true}).click();
+  await expect(page.getByText('verified', {exact: true}).last()).toBeVisible();
+  await page.getByRole('button', {name: 'Publish', exact: true}).click();
+  await expect(page.getByText('published', {exact: true}).last()).toBeVisible();
+
+  const mainText = await page.locator('main').innerText();
+  const releaseId = mainText.match(/(?:^|\n)Release\n([A-Za-z0-9._:-]+)/m)?.[1];
+  const cardDigest = mainText.match(/(?:^|\n)Card digest\n([0-9a-f]{64})/m)?.[1];
+  if (!releaseId || !cardDigest) throw new Error('Console did not render immutable Release provenance');
+  return {releaseId, cardDigest};
+}
+
+async function installRelease(page: Page, fixture: AgentFixture, releaseId: string): Promise<void> {
+  await page.getByRole('button', {name: 'Installations', exact: true}).click();
+  const agentSelect = page.getByLabel('Published Agent', {exact: true});
+  await selectOptionContaining(agentSelect, fixture.id);
+  await page.getByLabel('Trusted Release ID', {exact: true}).fill(releaseId);
+  await page.getByRole('button', {name: 'Preflight', exact: true}).click();
+  await expect(page.getByText('Published Release preflight passed', {exact: true})).toBeVisible();
+  await page.getByRole('button', {name: 'Install exact pin', exact: true}).click();
+  await expect(page.getByText(releaseId, {exact: true}).last()).toBeVisible();
+}
+
+async function selectOptionContaining(select: Locator, text: string): Promise<void> {
+  const value = await select.locator('option').evaluateAll((options, wanted) => {
+    const option = options.find((item) => item.textContent?.includes(String(wanted)));
+    if (!option) throw new Error(`No select option contains ${String(wanted)}`);
+    return (option as HTMLOptionElement).value;
+  }, text);
+  await select.selectOption(value);
+}
+
+async function textMatching(page: Page, pattern: RegExp): Promise<string> {
+  const value = (await page.getByText(pattern).last().textContent())?.trim();
+  if (!value) throw new Error(`Console did not render text matching ${pattern}`);
+  return value;
+}
+
+function injectChallengeProof(service: string, challengeId: string, proof: string): void {
+  execFileSync('docker', [
+    'compose', '--project-name', composeProject, '--file', composeFile,
+    'exec', '-T', service, 'sh', '-c',
+    'umask 077; cat > "$NEKIRO_AGENT_CHALLENGE_DIRECTORY/$1"', 'sh', challengeId,
+  ], {input: proof, encoding: 'utf8', stdio: ['pipe', 'ignore', 'pipe']});
+}
+
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value || value !== value.trim()) throw new Error(`${name} is required and must not contain surrounding whitespace`);
+  return value;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

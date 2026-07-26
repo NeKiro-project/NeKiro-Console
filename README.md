@@ -78,3 +78,26 @@ facts remain server-owned and are inspected through the public Gateway.
     npm run build
     rg "/v4/workspaces/.+invocations|/v4/workspaces/.+traces" src docs -n
     rg "INITIAL_AGENTS|INITIAL_INSTALLATIONS|TRACE_HISTORIES" src -n
+
+## Browser acceptance
+
+The browser acceptance suite runs against a fresh real Gateway and Compose
+environment. It requires an explicitly installed Chromium and these values:
+
+    NEKIRO_E2E_BASE_URL=http://127.0.0.1:4173
+    NEKIRO_E2E_COMPOSE_FILE=/absolute/path/to/deploy/compose.yaml
+    NEKIRO_E2E_COMPOSE_PROJECT=nekiro-browser-acceptance
+    VITE_NEKIRO_API_BASE_URL=http://gateway.nekiro.test
+    VITE_NEKIRO_PROVIDER_ID=browser-provider
+    VITE_NEKIRO_PROVIDER_NAME=Browser Provider
+    VITE_NEKIRO_PROVIDER_TOKEN=...
+    VITE_NEKIRO_OWNER_TOKEN=...
+    VITE_NEKIRO_DEFAULT_WORKSPACE_ID=workspace-browser
+
+Build the production Console with the five VITE_NEKIRO_* values before
+running npm run test:e2e. Missing or whitespace-padded values fail
+configuration. The suite uses the Gateway only, creates server-backed state,
+and never stores credentials or challenge proofs in browser storage.
+
+Playwright traces, screenshots, videos, and HTML reports are disabled for this
+acceptance path and are ignored by Git if a local runner creates them.

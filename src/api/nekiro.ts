@@ -227,6 +227,8 @@ export interface InvocationEventV03 {
   workspaceId: string;
   targetAgentId: string;
   agentCardVersion: string;
+  agentReleaseId?: string;
+  agentCardDigest?: string;
   capability: string;
   chunkIndex?: number;
   chunkBytes?: number;
@@ -243,6 +245,8 @@ export interface InvocationRecordV4 {
   workspaceId: string;
   targetAgentId: string;
   agentCardVersion: string;
+  agentReleaseId?: string;
+  agentCardDigest?: string;
   capability: string;
   status: InvocationEventStatus;
   latencyMs?: number;
@@ -923,7 +927,7 @@ function validateTrace(value: unknown, workspaceId: string, traceId: string): Tr
 
 function validateInvocationRecord(value: unknown, workspaceId: string): InvocationRecordV4 {
   const record = requireRecord(value, 'Invocation Record');
-  assertAllowedKeys(record, ['invocationId', 'rootTaskId', 'parentInvocationId', 'traceId', 'caller', 'workspaceId', 'targetAgentId', 'agentCardVersion', 'capability', 'status', 'latencyMs', 'errorCode', 'createdAt', 'updatedAt'], 'Invocation Record');
+  assertAllowedKeys(record, ['invocationId', 'rootTaskId', 'parentInvocationId', 'traceId', 'caller', 'workspaceId', 'targetAgentId', 'agentCardVersion', 'agentReleaseId', 'agentCardDigest', 'capability', 'status', 'latencyMs', 'errorCode', 'createdAt', 'updatedAt'], 'Invocation Record');
   const invocationId = record.invocationId;
   requireIdentifier(invocationId, 'invocationId');
   requireIdentifier(record.rootTaskId, 'rootTaskId');
@@ -931,6 +935,7 @@ function validateInvocationRecord(value: unknown, workspaceId: string): Invocati
   if (record.workspaceId !== workspaceId) throw new Error('Invocation Record Workspace does not match the active Workspace');
   requireIdentifier(record.targetAgentId, 'targetAgentId'); requireIdentifier(record.capability, 'capability');
   if (typeof record.agentCardVersion !== 'string' || !isSemver(record.agentCardVersion)) throw new Error('agentCardVersion must be strict SemVer');
+  validateReleaseProvenance(record.agentReleaseId, record.agentCardDigest, 'Invocation Record');
   requireCaller(record.caller);
   requireEnum(record.status, ['pending', 'routing', 'running', 'succeeded', 'failed', 'canceled', 'timed_out'], 'invocation status');
   requireDate(record.createdAt, 'createdAt'); requireDate(record.updatedAt, 'updatedAt');
@@ -942,12 +947,13 @@ function validateInvocationRecord(value: unknown, workspaceId: string): Invocati
 
 function validateInvocationEvent(value: unknown, workspaceId: string): InvocationEventV03 {
   const record = requireRecord(value, 'Invocation Event');
-  assertAllowedKeys(record, ['schemaVersion', 'eventId', 'sequence', 'occurredAt', 'type', 'status', 'invocationId', 'rootTaskId', 'parentInvocationId', 'traceId', 'caller', 'workspaceId', 'targetAgentId', 'agentCardVersion', 'capability', 'chunkIndex', 'chunkBytes', 'latencyMs', 'error'], 'Invocation Event');
+  assertAllowedKeys(record, ['schemaVersion', 'eventId', 'sequence', 'occurredAt', 'type', 'status', 'invocationId', 'rootTaskId', 'parentInvocationId', 'traceId', 'caller', 'workspaceId', 'targetAgentId', 'agentCardVersion', 'agentReleaseId', 'agentCardDigest', 'capability', 'chunkIndex', 'chunkBytes', 'latencyMs', 'error'], 'Invocation Event');
   if (record.schemaVersion !== '0.3' || typeof record.sequence !== 'number' || !Number.isInteger(record.sequence) || record.sequence < 0) throw new Error('Invocation Event schema or sequence is invalid');
   requireIdentifier(record.eventId, 'eventId'); requireDate(record.occurredAt, 'occurredAt'); requireIdentifier(record.invocationId, 'invocationId'); requireIdentifier(record.rootTaskId, 'rootTaskId'); requireIdentifier(record.traceId, 'traceId');
   if (record.workspaceId !== workspaceId) throw new Error('Invocation Event Workspace does not match the active Workspace');
   requireCaller(record.caller); requireIdentifier(record.targetAgentId, 'targetAgentId');
   if (typeof record.agentCardVersion !== 'string' || !isSemver(record.agentCardVersion)) throw new Error('agentCardVersion must be strict SemVer');
+  validateReleaseProvenance(record.agentReleaseId, record.agentCardDigest, 'Invocation Event');
   requireIdentifier(record.capability, 'capability');
   const type = requireEnum(record.type, ['created', 'routing', 'started', 'stream', 'succeeded', 'failed', 'canceled', 'timed_out'], 'event type') as InvocationEventType;
   const status = requireEnum(record.status, ['pending', 'routing', 'running', 'succeeded', 'failed', 'canceled', 'timed_out'], 'event status') as InvocationEventStatus;
@@ -1210,6 +1216,14 @@ export function mapCatalogEntry(entry: CatalogEntry): Agent {
     registeredAt: entry.registeredAt,
     publishedAt: entry.publishedAt,
   };
+}
+
+function validateReleaseProvenance(releaseId: unknown, cardDigest: unknown, field: string): void {
+  if ((releaseId === undefined) !== (cardDigest === undefined)) throw new Error(`${field} Release provenance must contain both fields or neither`);
+  if (releaseId !== undefined) {
+    requireIdentifier(releaseId, field + ' agentReleaseId');
+    requireDigest(cardDigest, field + ' agentCardDigest');
+  }
 }
 
 function validateInstallation(value: unknown, workspaceId: string): Installation {
