@@ -92,6 +92,70 @@ export interface InstallationList {
   nextCursor?: string;
 }
 
+export type TrustedPublicationErrorCode =
+  | 'VALIDATION_ERROR' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT'
+  | 'INVALID_ENDPOINT' | 'DISALLOWED_NETWORK' | 'ENDPOINT_UNAVAILABLE'
+  | 'WRONG_PROOF' | 'CHALLENGE_EXPIRED' | 'CHALLENGE_REUSED'
+  | 'REDIRECT_NOT_ALLOWED' | 'DEPENDENCY_ERROR' | 'INTERNAL_ERROR';
+
+export type EndpointBindingVerificationStatus = 'pending' | 'verified' | 'failed' | 'revoked';
+export type AgentReleaseState = 'draft' | 'pending_verification' | 'verified' | 'published' | 'suspended' | 'revoked';
+
+export interface CreateEndpointBindingRequest {
+  endpoint: string;
+  method: 'http_well_known';
+  version: string;
+}
+
+export interface EndpointBinding {
+  bindingId: string;
+  providerId: string;
+  agentId: string;
+  agentCardVersion: string;
+  endpoint: string;
+  verificationMethod: 'http_well_known';
+  verificationStatus: EndpointBindingVerificationStatus;
+  verificationFailureCode?: string;
+  verificationEvidenceDigest?: string;
+  createdAt: string;
+  updatedAt: string;
+  verifiedAt?: string;
+  revokedAt?: string;
+}
+
+export interface VerificationChallenge {
+  challengeId: string;
+  bindingId: string;
+  challengeUrl: string;
+  proof: string;
+  expiresAt: string;
+}
+
+export interface CreateAgentReleaseRequest {
+  version: string;
+  endpointBindingId: string;
+}
+
+export interface AgentRelease {
+  releaseId: string;
+  providerId: string;
+  agentId: string;
+  agentCardVersion: string;
+  cardDigest: string;
+  endpointBindingId: string;
+  endpointOrigin: string;
+  endpointPath: string;
+  verificationMethod: 'http_well_known';
+  verificationEvidenceDigest?: string;
+  state: AgentReleaseState;
+  createdAt: string;
+  updatedAt: string;
+  verifiedAt?: string;
+  publishedAt?: string;
+  suspendedAt?: string;
+  revokedAt?: string;
+}
+
 export type PlatformErrorCode =
   | 'VALIDATION_ERROR' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT'
   | 'NOT_ACCEPTABLE' | 'PAYLOAD_TOO_LARGE' | 'AGENT_NOT_INSTALLED'
@@ -286,6 +350,92 @@ export class NekiroApiClient {
     return this.request<CatalogEntry>(this.versionPath(agentId, version) + '/disable', {method: 'POST'});
   }
 
+  createEndpointBinding(providerId: string, agentId: string, request: CreateEndpointBindingRequest): Promise<EndpointBinding> {
+    const safeProviderId = readIdentifier(providerId, 'providerId');
+    const safeAgentId = readIdentifier(agentId, 'agentId');
+    const safeRequest = validateCreateEndpointBindingRequest(request);
+    return this.trustedRequest<EndpointBinding>(
+      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/agents/' + encodeURIComponent(safeAgentId) + '/endpoint-bindings',
+      {method: 'POST', body: JSON.stringify(safeRequest)},
+      (value) => validateEndpointBinding(value, {providerId: safeProviderId, agentId: safeAgentId, version: safeRequest.version}),
+      201,
+    );
+  }
+
+  getEndpointBinding(providerId: string, bindingId: string): Promise<EndpointBinding> {
+    const safeProviderId = readIdentifier(providerId, 'providerId');
+    const safeBindingId = readIdentifier(bindingId, 'bindingId');
+    return this.trustedRequest<EndpointBinding>(
+      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId),
+      {},
+      (value) => validateEndpointBinding(value, {providerId: safeProviderId, bindingId: safeBindingId}),
+    );
+  }
+
+  createVerificationChallenge(providerId: string, bindingId: string): Promise<VerificationChallenge> {
+    const safeProviderId = readIdentifier(providerId, 'providerId');
+    const safeBindingId = readIdentifier(bindingId, 'bindingId');
+    return this.trustedRequest<VerificationChallenge>(
+      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId) + '/challenges',
+      {method: 'POST'},
+      (value) => validateVerificationChallenge(value, safeBindingId),
+      201,
+    );
+  }
+
+  completeVerificationChallenge(providerId: string, bindingId: string, challengeId: string): Promise<EndpointBinding> {
+    const safeProviderId = readIdentifier(providerId, 'providerId');
+    const safeBindingId = readIdentifier(bindingId, 'bindingId');
+    const safeChallengeId = readIdentifier(challengeId, 'challengeId');
+    return this.trustedRequest<EndpointBinding>(
+      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId) + '/challenges/' + encodeURIComponent(safeChallengeId) + '/complete',
+      {method: 'POST'},
+      (value) => validateEndpointBinding(value, {providerId: safeProviderId, bindingId: safeBindingId}),
+    );
+  }
+
+  createAgentRelease(providerId: string, agentId: string, request: CreateAgentReleaseRequest): Promise<AgentRelease> {
+    const safeProviderId = readIdentifier(providerId, 'providerId');
+    const safeAgentId = readIdentifier(agentId, 'agentId');
+    const safeRequest = validateCreateAgentReleaseRequest(request);
+    return this.trustedRequest<AgentRelease>(
+      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/agents/' + encodeURIComponent(safeAgentId) + '/releases',
+      {method: 'POST', body: JSON.stringify(safeRequest)},
+      (value) => validateAgentRelease(value, {
+        providerId: safeProviderId,
+        agentId: safeAgentId,
+        version: safeRequest.version,
+        bindingId: safeRequest.endpointBindingId,
+      }),
+      201,
+    );
+  }
+
+  getAgentRelease(releaseId: string): Promise<AgentRelease> {
+    const safeReleaseId = readIdentifier(releaseId, 'releaseId');
+    return this.trustedRequest<AgentRelease>(
+      '/v4/releases/' + encodeURIComponent(safeReleaseId),
+      {},
+      (value) => validateAgentRelease(value, {releaseId: safeReleaseId}),
+    );
+  }
+
+  verifyAgentRelease(releaseId: string): Promise<AgentRelease> {
+    return this.releaseAction(releaseId, 'verify');
+  }
+
+  publishAgentRelease(releaseId: string): Promise<AgentRelease> {
+    return this.releaseAction(releaseId, 'publish');
+  }
+
+  suspendAgentRelease(releaseId: string): Promise<AgentRelease> {
+    return this.releaseAction(releaseId, 'suspend');
+  }
+
+  revokeAgentRelease(releaseId: string): Promise<AgentRelease> {
+    return this.releaseAction(releaseId, 'revoke');
+  }
+
   createWorkspace(workspaceId: string): Promise<Workspace> {
     return this.request<Workspace>('/v3/workspaces', {
       method: 'POST',
@@ -443,6 +593,15 @@ export class NekiroApiClient {
     return '/v4/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/traces/' + encodeURIComponent(readIdentifier(traceId, 'traceId'));
   }
 
+  private releaseAction(releaseId: string, action: 'verify' | 'publish' | 'suspend' | 'revoke'): Promise<AgentRelease> {
+    const safeReleaseId = readIdentifier(releaseId, 'releaseId');
+    return this.trustedRequest<AgentRelease>(
+      '/v4/releases/' + encodeURIComponent(safeReleaseId) + '/' + action,
+      {method: 'POST'},
+      (value) => validateAgentRelease(value, {releaseId: safeReleaseId}),
+    );
+  }
+
   private queryString(params: object): string {
     const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params) as Array<[string, string | number | undefined]>) {
@@ -484,6 +643,27 @@ export class NekiroApiClient {
     return payload as T;
   }
 
+  private async trustedRequest<T>(path: string, init: RequestInit, validate: (value: unknown) => T, expectedStatus = 200): Promise<T> {
+    const response = await this.rawRequest(path, {...init, redirect: 'error'});
+    const mediaType = response.headers.get('content-type')?.split(';', 1)[0].trim();
+    const responseText = await response.text();
+    const payload = parseJson<unknown>(responseText);
+    if (!response.ok) {
+      throw await this.trustedErrorFromResponse(response, payload);
+    }
+    if (response.status !== expectedStatus) {
+      throw new NekiroApiError(response.status, 'NeKiro Trusted Publication returned an unexpected HTTP status.', 'INVALID_RESPONSE');
+    }
+    if (mediaType !== 'application/json' || payload === undefined) {
+      throw new NekiroApiError(response.status, 'NeKiro Trusted Publication returned an invalid JSON response.', 'INVALID_RESPONSE');
+    }
+    try {
+      return validate(payload);
+    } catch {
+      throw new NekiroApiError(response.status, 'NeKiro Trusted Publication returned an invalid response.', 'INVALID_RESPONSE');
+    }
+  }
+
   private async rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
     if (!this.baseUrl) throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
     const headers = new Headers(init.headers);
@@ -493,8 +673,7 @@ export class NekiroApiClient {
     try {
       return await this.fetchImpl(new URL(path, this.baseUrl + '/'), {...init, headers});
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'NeKiro API request failed.';
-      throw new NekiroApiError(0, message, 'NETWORK_ERROR');
+      throw new NekiroApiError(0, 'NeKiro API request failed.', 'NETWORK_ERROR');
     }
   }
 
@@ -506,6 +685,20 @@ export class NekiroApiClient {
     const invocationId = 'invocationId' in payload ? payload.invocationId : undefined;
     const rootTaskId = 'rootTaskId' in payload ? payload.rootTaskId : undefined;
     return new NekiroApiError(response.status, payload.message, payload.code, payload.traceId, invocationId, rootTaskId);
+  }
+
+  private trustedErrorFromResponse(response: Response, payload: unknown): NekiroApiError {
+    if (response.headers.get('content-type')?.split(';', 1)[0].trim() !== 'application/json') {
+      return new NekiroApiError(response.status, 'NeKiro Trusted Publication returned an invalid error response.', 'INVALID_RESPONSE');
+    }
+    if (!isTrustedPublicationError(payload)) {
+      return new NekiroApiError(response.status, 'NeKiro Trusted Publication returned an invalid error response.', 'INVALID_RESPONSE');
+    }
+    const headerTraceId = response.headers.get('x-nek-trace-id');
+    if (headerTraceId !== null && (headerTraceId !== payload.traceId || !/^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(headerTraceId))) {
+      return new NekiroApiError(response.status, 'NeKiro Trusted Publication returned inconsistent trace correlation.', 'INVALID_RESPONSE');
+    }
+    return new NekiroApiError(response.status, payload.message, payload.code, payload.traceId);
   }
 }
 
@@ -532,6 +725,117 @@ const PLATFORM_ERROR_MESSAGES: Record<PlatformErrorCode, string> = {
   CANCELED: 'The invocation was canceled.',
   INTERNAL_ERROR: 'The platform could not complete the request.',
 };
+
+const TRUSTED_PUBLICATION_ERROR_CODES: readonly TrustedPublicationErrorCode[] = [
+  'VALIDATION_ERROR', 'UNAUTHENTICATED', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT',
+  'INVALID_ENDPOINT', 'DISALLOWED_NETWORK', 'ENDPOINT_UNAVAILABLE', 'WRONG_PROOF',
+  'CHALLENGE_EXPIRED', 'CHALLENGE_REUSED', 'REDIRECT_NOT_ALLOWED',
+  'DEPENDENCY_ERROR', 'INTERNAL_ERROR',
+];
+
+interface TrustedPublicationError {
+  code: TrustedPublicationErrorCode;
+  message: string;
+  traceId: string;
+}
+
+function validateCreateEndpointBindingRequest(value: unknown): CreateEndpointBindingRequest {
+  const record = requireRecord(value, 'Create Endpoint Binding request');
+  assertAllowedKeys(record, ['endpoint', 'method', 'version'], 'Create Endpoint Binding request');
+  const endpoint = requireHttpUri(record.endpoint, 'endpoint');
+  const method = requireEnum(record.method, ['http_well_known'], 'method') as 'http_well_known';
+  const version = requireSemver(record.version, 'version');
+  return {endpoint, method, version};
+}
+
+function validateCreateAgentReleaseRequest(value: unknown): CreateAgentReleaseRequest {
+  const record = requireRecord(value, 'Create Agent Release request');
+  assertAllowedKeys(record, ['version', 'endpointBindingId'], 'Create Agent Release request');
+  return {
+    version: requireSemver(record.version, 'version'),
+    endpointBindingId: readIdentifier(record.endpointBindingId, 'endpointBindingId'),
+  };
+}
+
+function validateEndpointBinding(value: unknown, expected: {providerId?: string; agentId?: string; version?: string; bindingId?: string}): EndpointBinding {
+  const record = requireRecord(value, 'Endpoint Binding');
+  assertAllowedKeys(record, ['bindingId', 'providerId', 'agentId', 'agentCardVersion', 'endpoint', 'verificationMethod', 'verificationStatus', 'verificationFailureCode', 'verificationEvidenceDigest', 'createdAt', 'updatedAt', 'verifiedAt', 'revokedAt'], 'Endpoint Binding');
+  const result: EndpointBinding = {
+    bindingId: readIdentifier(record.bindingId, 'bindingId'),
+    providerId: readIdentifier(record.providerId, 'providerId'),
+    agentId: readIdentifier(record.agentId, 'agentId'),
+    agentCardVersion: requireSemver(record.agentCardVersion, 'agentCardVersion'),
+    endpoint: requireHttpUri(record.endpoint, 'endpoint'),
+    verificationMethod: requireEnum(record.verificationMethod, ['http_well_known'], 'verificationMethod') as 'http_well_known',
+    verificationStatus: requireEnum(record.verificationStatus, ['pending', 'verified', 'failed', 'revoked'], 'verificationStatus') as EndpointBindingVerificationStatus,
+    createdAt: requireDateValue(record.createdAt, 'createdAt'),
+    updatedAt: requireDateValue(record.updatedAt, 'updatedAt'),
+  };
+  if ('verificationFailureCode' in record) result.verificationFailureCode = requireOptionalText(record.verificationFailureCode, 'verificationFailureCode', 64);
+  if ('verificationEvidenceDigest' in record) result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+  if ('verifiedAt' in record) result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+  if ('revokedAt' in record) result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+  if (expected.providerId !== undefined && result.providerId !== expected.providerId) throw new Error('Endpoint Binding provider does not match the request');
+  if (expected.agentId !== undefined && result.agentId !== expected.agentId) throw new Error('Endpoint Binding Agent does not match the request');
+  if (expected.version !== undefined && result.agentCardVersion !== expected.version) throw new Error('Endpoint Binding version does not match the request');
+  if (expected.bindingId !== undefined && result.bindingId !== expected.bindingId) throw new Error('Endpoint Binding ID does not match the request');
+  return result;
+}
+
+function validateVerificationChallenge(value: unknown, expectedBindingId: string): VerificationChallenge {
+  const record = requireRecord(value, 'Verification Challenge');
+  assertAllowedKeys(record, ['challengeId', 'bindingId', 'challengeUrl', 'proof', 'expiresAt'], 'Verification Challenge');
+  const result: VerificationChallenge = {
+    challengeId: readIdentifier(record.challengeId, 'challengeId'),
+    bindingId: readIdentifier(record.bindingId, 'bindingId'),
+    challengeUrl: requireUri(record.challengeUrl, 'challengeUrl'),
+    proof: requireBoundedText(record.proof, 'proof', 1, 128),
+    expiresAt: requireDateValue(record.expiresAt, 'expiresAt'),
+  };
+  if (result.bindingId !== expectedBindingId) throw new Error('Verification Challenge Binding does not match the request');
+  return result;
+}
+
+function validateAgentRelease(value: unknown, expected: {providerId?: string; agentId?: string; version?: string; bindingId?: string; releaseId?: string}): AgentRelease {
+  const record = requireRecord(value, 'Agent Release');
+  assertAllowedKeys(record, ['releaseId', 'providerId', 'agentId', 'agentCardVersion', 'cardDigest', 'endpointBindingId', 'endpointOrigin', 'endpointPath', 'verificationMethod', 'verificationEvidenceDigest', 'state', 'createdAt', 'updatedAt', 'verifiedAt', 'publishedAt', 'suspendedAt', 'revokedAt'], 'Agent Release');
+  const result: AgentRelease = {
+    releaseId: readIdentifier(record.releaseId, 'releaseId'),
+    providerId: readIdentifier(record.providerId, 'providerId'),
+    agentId: readIdentifier(record.agentId, 'agentId'),
+    agentCardVersion: requireSemver(record.agentCardVersion, 'agentCardVersion'),
+    cardDigest: requireDigest(record.cardDigest, 'cardDigest'),
+    endpointBindingId: readIdentifier(record.endpointBindingId, 'endpointBindingId'),
+    endpointOrigin: requireHttpUri(record.endpointOrigin, 'endpointOrigin'),
+    endpointPath: requireBoundedText(record.endpointPath, 'endpointPath', 1),
+    verificationMethod: requireEnum(record.verificationMethod, ['http_well_known'], 'verificationMethod') as 'http_well_known',
+    state: requireEnum(record.state, ['draft', 'pending_verification', 'verified', 'published', 'suspended', 'revoked'], 'state') as AgentReleaseState,
+    createdAt: requireDateValue(record.createdAt, 'createdAt'),
+    updatedAt: requireDateValue(record.updatedAt, 'updatedAt'),
+  };
+  if ('verificationEvidenceDigest' in record) result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+  if ('verifiedAt' in record) result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+  if ('publishedAt' in record) result.publishedAt = requireDateValue(record.publishedAt, 'publishedAt');
+  if ('suspendedAt' in record) result.suspendedAt = requireDateValue(record.suspendedAt, 'suspendedAt');
+  if ('revokedAt' in record) result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+  if (expected.providerId !== undefined && result.providerId !== expected.providerId) throw new Error('Agent Release provider does not match the request');
+  if (expected.agentId !== undefined && result.agentId !== expected.agentId) throw new Error('Agent Release Agent does not match the request');
+  if (expected.version !== undefined && result.agentCardVersion !== expected.version) throw new Error('Agent Release version does not match the request');
+  if (expected.bindingId !== undefined && result.endpointBindingId !== expected.bindingId) throw new Error('Agent Release Binding does not match the request');
+  if (expected.releaseId !== undefined && result.releaseId !== expected.releaseId) throw new Error('Agent Release ID does not match the request');
+  return result;
+}
+
+function isTrustedPublicationError(value: unknown): value is TrustedPublicationError {
+  if (!isRecord(value)) return false;
+  if (Object.keys(value).some((key) => !['code', 'message', 'traceId'].includes(key))) return false;
+  return typeof value.code === 'string'
+    && TRUSTED_PUBLICATION_ERROR_CODES.includes(value.code as TrustedPublicationErrorCode)
+    && typeof value.message === 'string'
+    && value.message.length > 0
+    && typeof value.traceId === 'string'
+    && /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(value.traceId);
+}
 
 function validateInvocationResult(value: unknown): InvocationResultV1 {
   const record = requireRecord(value, 'Invocation Result');
@@ -673,8 +977,76 @@ function requireCaller(value: unknown): void {
   requireEnum(caller.type, ['user', 'agent', 'service'], 'caller.type'); requireIdentifier(caller.id, 'caller.id');
 }
 
+function requireSemver(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !isSemver(value)) throw new Error(field + ' must be strict SemVer');
+  return value;
+}
+
+function requireUri(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.length === 0) throw new Error(field + ' must be a URI');
+  if (value !== value.trim() || /\s/.test(value)) throw new Error(field + ' must not contain whitespace');
+  try {
+    const parsed = new URL(value);
+    if (parsed.username || parsed.password) throw new Error('URI userinfo is not allowed');
+  } catch {
+    throw new Error(field + ' must be a valid URI without userinfo');
+  }
+  return value;
+}
+
+function requireHttpUri(value: unknown, field: string): string {
+  const uri = requireUri(value, field);
+  const parsed = new URL(uri);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error(field + ' must be an HTTP(S) URI');
+  return uri;
+}
+
+function requireDateValue(value: unknown, field: string): string {
+  requireDate(value, field);
+  return value as string;
+}
+
+function requireDigest(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value)) throw new Error(field + ' must be a lowercase 64-hex digest');
+  return value;
+}
+
+function requireBoundedText(value: unknown, field: string, minimum: number, maximum?: number): string {
+  if (typeof value !== 'string' || value.length < minimum || (maximum !== undefined && value.length > maximum)) {
+    throw new Error(field + ' has an invalid length');
+  }
+  return value;
+}
+
+function requireOptionalText(value: unknown, field: string, maximum: number): string {
+  return requireBoundedText(value, field, 0, maximum);
+}
+
 function requireDate(value: unknown, field: string): void {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) || Number.isNaN(Date.parse(value))) throw new Error(field + ' is invalid');
+  if (typeof value !== 'string' || !isStrictDateTime(value)) throw new Error(field + ' is invalid');
+}
+
+function isStrictDateTime(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month) || hour > 23 || minute > 59 || second > 59) return false;
+  if (match[7] !== 'Z') {
+    const offsetHours = Number(match[7].slice(1, 3));
+    const offsetMinutes = Number(match[7].slice(4, 6));
+    if (offsetHours > 23 || offsetMinutes > 59) return false;
+  }
+  return true;
+}
+
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28;
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
 }
 
 function requireIdentifier(value: unknown, field: string): asserts value is string {

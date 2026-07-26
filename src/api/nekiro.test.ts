@@ -273,3 +273,235 @@ test('NekiroApiClient rejects an empty JSON success body', async () => {
   const client = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'test-token', fetchImpl: async () => new Response('', {status: 200})});
   await assert.rejects(() => client.searchAgents(), /empty success response/);
 });
+
+test('NekiroApiClient constructs every Trusted Publication Gateway route without proof bodies', async () => {
+  const requests: Array<{url: string; init?: RequestInit}> = [];
+  const binding = trustedBinding();
+  const challenge = trustedChallenge();
+  const release = trustedRelease();
+  const responses = [binding, binding, challenge, binding, release, release, release, release, release, release];
+  const statuses = [201, 200, 201, 200, 201, 200, 200, 200, 200, 200];
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test/',
+    token: 'exact-token',
+    fetchImpl: async (input, init) => {
+      requests.push({url: String(input), init});
+      const value = responses.shift();
+      if (!value) throw new Error('unexpected request count');
+      const status = statuses.shift();
+      if (!status) throw new Error('unexpected response count');
+      return trustedResponse(value, status);
+    },
+  });
+
+  await client.createEndpointBinding('provider.main', 'agent.echo', {endpoint: 'https://agent.example/a2a', method: 'http_well_known', version: '1.2.3'});
+  await client.getEndpointBinding('provider.main', 'binding-1');
+  await client.createVerificationChallenge('provider.main', 'binding-1');
+  await client.completeVerificationChallenge('provider.main', 'binding-1', 'challenge-1');
+  await client.createAgentRelease('provider.main', 'agent.echo', {version: '1.2.3', endpointBindingId: 'binding-1'});
+  await client.getAgentRelease('release-1');
+  await client.verifyAgentRelease('release-1');
+  await client.publishAgentRelease('release-1');
+  await client.suspendAgentRelease('release-1');
+  await client.revokeAgentRelease('release-1');
+
+  assert.deepEqual(requests.map((request) => request.url), [
+    'https://api.example.test/v4/providers/provider.main/agents/agent.echo/endpoint-bindings',
+    'https://api.example.test/v4/providers/provider.main/endpoint-bindings/binding-1',
+    'https://api.example.test/v4/providers/provider.main/endpoint-bindings/binding-1/challenges',
+    'https://api.example.test/v4/providers/provider.main/endpoint-bindings/binding-1/challenges/challenge-1/complete',
+    'https://api.example.test/v4/providers/provider.main/agents/agent.echo/releases',
+    'https://api.example.test/v4/releases/release-1',
+    'https://api.example.test/v4/releases/release-1/verify',
+    'https://api.example.test/v4/releases/release-1/publish',
+    'https://api.example.test/v4/releases/release-1/suspend',
+    'https://api.example.test/v4/releases/release-1/revoke',
+  ]);
+  assert.deepEqual(requests.map((request) => request.init?.method), ['POST', undefined, 'POST', 'POST', 'POST', undefined, 'POST', 'POST', 'POST', 'POST']);
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {endpoint: 'https://agent.example/a2a', method: 'http_well_known', version: '1.2.3'});
+  assert.deepEqual(JSON.parse(String(requests[4]?.init?.body)), {version: '1.2.3', endpointBindingId: 'binding-1'});
+  assert.equal(requests[2]?.init?.body, undefined);
+  assert.equal(requests[3]?.init?.body, undefined);
+  assert.equal(requests[5]?.init?.body, undefined);
+  assert.equal(requests[2]?.init?.redirect, 'error');
+  for (const request of requests) {
+    const headers = new Headers(request.init?.headers);
+    assert.equal(headers.get('Authorization'), 'Bearer exact-token');
+  }
+  assert.equal(requests.some((request) => String(request.init?.body ?? '').includes(String(challenge.proof))), false);
+});
+
+test('Trusted Publication errors preserve status, code, body trace, and optional matching header', async () => {
+  const error = {code: 'WRONG_PROOF', message: 'The verification proof is incorrect.', traceId: 'trace-trust-1'};
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(error, 400, {'x-nek-trace-id': 'trace-trust-1'}),
+  });
+
+  await assert.rejects(() => client.getAgentRelease('release-1'), (value: unknown) => {
+    assert.ok(value instanceof NekiroApiError);
+    assert.equal(value.status, 400);
+    assert.equal(value.code, 'WRONG_PROOF');
+    assert.equal(value.traceId, 'trace-trust-1');
+    return true;
+  });
+});
+
+test('Trusted Publication accepts an absent trace header but rejects a mismatched header', async () => {
+  const error = {code: 'CHALLENGE_EXPIRED', message: 'The verification challenge expired.', traceId: 'trace-trust-2'};
+  const absentHeader = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(error, 409),
+  });
+  await assert.rejects(() => absentHeader.getAgentRelease('release-1'), (value: unknown) => {
+    assert.ok(value instanceof NekiroApiError);
+    assert.equal(value.code, 'CHALLENGE_EXPIRED');
+    assert.equal(value.traceId, 'trace-trust-2');
+    return true;
+  });
+
+  const mismatchedHeader = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(error, 409, {'x-nek-trace-id': 'trace-other'}),
+  });
+  await assert.rejects(() => mismatchedHeader.getAgentRelease('release-1'), /inconsistent trace correlation/);
+});
+
+test('Trusted Publication rejects malformed success relationships and unknown fields', async () => {
+  const mismatchedBinding = {...trustedBinding(), agentId: 'agent.other'};
+  const bindingClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(mismatchedBinding, 201),
+  });
+  await assert.rejects(
+    () => bindingClient.createEndpointBinding('provider.main', 'agent.echo', {endpoint: 'https://agent.example/a2a', method: 'http_well_known', version: '1.2.3'}),
+    /invalid response/,
+  );
+
+  const unknownRelease = {...trustedRelease(), unknown: true};
+  const releaseClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(unknownRelease, 200),
+  });
+  await assert.rejects(() => releaseClient.getAgentRelease('release-1'), /invalid response/);
+});
+
+test('Trusted Publication enforces operation-specific success status and strict endpoint data', async () => {
+  const wrongStatusClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(trustedBinding(), 200),
+  });
+  await assert.rejects(
+    () => wrongStatusClient.createEndpointBinding('provider.main', 'agent.echo', {endpoint: 'https://agent.example/a2a', method: 'http_well_known', version: '1.2.3'}),
+    /unexpected HTTP status/,
+  );
+
+  const userInfoClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse(trustedBinding(), 201),
+  });
+  assert.throws(
+    () => userInfoClient.createEndpointBinding('provider.main', 'agent.echo', {endpoint: 'https://user:secret@agent.example/a2a', method: 'http_well_known', version: '1.2.3'}),
+    /userinfo|HTTP\(S\) URI/,
+  );
+  assert.throws(
+    () => userInfoClient.createEndpointBinding('provider.main', 'agent.echo', {endpoint: ' https://agent.example/a2a', method: 'http_well_known', version: '1.2.3'}),
+    /whitespace/,
+  );
+
+  const invalidDateClient = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => trustedResponse({...trustedBinding(), updatedAt: '2026-02-31T00:00:00Z'}, 200),
+  });
+  await assert.rejects(() => invalidDateClient.getEndpointBinding('provider.main', 'binding-1'), /invalid response/);
+});
+
+test('Trusted Publication transport errors do not expose the underlying error message', async () => {
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => { throw new Error('internal socket detail and secret-value'); },
+  });
+  await assert.rejects(() => client.getAgentRelease('release-1'), (value: unknown) => {
+    assert.ok(value instanceof NekiroApiError);
+    assert.equal(value.code, 'NETWORK_ERROR');
+    assert.equal(value.message, 'NeKiro API request failed.');
+    assert.equal(value.message.includes('secret-value'), false);
+    return true;
+  });
+});
+
+test('Trusted Publication malformed error bodies return a safe validation error after one read', async () => {
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'test-token',
+    fetchImpl: async () => new Response('', {status: 500, headers: {'Content-Type': 'application/json'}}),
+  });
+  await assert.rejects(() => client.getAgentRelease('release-1'), (value: unknown) => {
+    assert.ok(value instanceof NekiroApiError);
+    assert.equal(value.code, 'INVALID_RESPONSE');
+    assert.equal(value.message, 'NeKiro Trusted Publication returned an invalid error response.');
+    return true;
+  });
+});
+
+function trustedResponse(value: unknown, status: number, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: {'Content-Type': 'application/json', ...extraHeaders},
+  });
+}
+
+function trustedBinding(): Record<string, unknown> {
+  return {
+    bindingId: 'binding-1',
+    providerId: 'provider.main',
+    agentId: 'agent.echo',
+    agentCardVersion: '1.2.3',
+    endpoint: 'https://agent.example/a2a',
+    verificationMethod: 'http_well_known',
+    verificationStatus: 'verified',
+    verificationEvidenceDigest: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    createdAt: '2026-07-26T00:00:00Z',
+    updatedAt: '2026-07-26T00:00:01Z',
+    verifiedAt: '2026-07-26T00:00:01Z',
+  };
+}
+
+function trustedChallenge(): Record<string, unknown> {
+  return {
+    challengeId: 'challenge-1',
+    bindingId: 'binding-1',
+    challengeUrl: 'https://agent.example/.well-known/nekiro/challenges/challenge-1',
+    proof: 'one-time-proof',
+    expiresAt: '2026-07-26T00:05:00Z',
+  };
+}
+
+function trustedRelease(): Record<string, unknown> {
+  return {
+    releaseId: 'release-1',
+    providerId: 'provider.main',
+    agentId: 'agent.echo',
+    agentCardVersion: '1.2.3',
+    cardDigest: 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+    endpointBindingId: 'binding-1',
+    endpointOrigin: 'https://agent.example',
+    endpointPath: '/a2a',
+    verificationMethod: 'http_well_known',
+    verificationEvidenceDigest: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    state: 'published',
+    createdAt: '2026-07-26T00:00:00Z',
+    updatedAt: '2026-07-26T00:00:02Z',
+    verifiedAt: '2026-07-26T00:00:01Z',
+    publishedAt: '2026-07-26T00:00:02Z',
+  };
+}
