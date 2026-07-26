@@ -316,6 +316,14 @@ test('NekiroApiClient reads Workspace-scoped v4 Invocation and Trace paths', asy
   assert.deepEqual(requests, ['https://api.example.test/v4/workspaces/workspace.alpha/invocations/inv-1', 'https://api.example.test/v4/workspaces/workspace.alpha/traces/trace-1']);
 });
 
+test('NekiroApiClient rejects Invocation Detail provenance changes', async () => {
+  const cardDigest = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const record = {invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1', caller: {type: 'user', id: 'owner-a'}, workspaceId: 'workspace.alpha', targetAgentId: 'runtime.echo', agentCardVersion: '1.0.0', agentReleaseId: 'release-1', agentCardDigest: cardDigest, capability: 'runtime.echo', status: 'pending', createdAt: '2026-07-21T00:00:00Z', updatedAt: '2026-07-21T00:00:00Z'};
+  const event = {schemaVersion: '0.3', eventId: 'evt-1', sequence: 0, occurredAt: '2026-07-21T00:00:00Z', type: 'created', status: 'pending', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1', caller: {type: 'user', id: 'owner-a'}, workspaceId: 'workspace.alpha', targetAgentId: 'runtime.echo', agentCardVersion: '1.0.0', agentReleaseId: 'release-1', agentCardDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', capability: 'runtime.echo'};
+  const client = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'test-token', fetchImpl: async () => new Response(JSON.stringify({invocation: record, events: [event]}), {status: 200})});
+  await assert.rejects(() => client.getInvocation('workspace.alpha', 'inv-1'), /Invocation Detail event correlation is invalid/);
+});
+
 test('NekiroApiClient validates ordered SSE events and requires a terminal event', async () => {
   const accepted = {schemaVersion: '2', sequence: 0, type: 'accepted', status: 'pending', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1'};
   const completed = {schemaVersion: '2', sequence: 1, type: 'completed', status: 'succeeded', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1'};

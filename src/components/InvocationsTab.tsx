@@ -131,16 +131,16 @@ function DispatchForm({workspace, enabled, installationId, setInstallationId, ca
   return (
     <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-5 h-fit">
       <div className="flex items-center gap-2 text-sm font-bold mb-4"><Play size={16} className="text-brand-primary" /> Dispatch request</div>
-      <label className="block text-xs text-brand-on-surface-variant mb-1">Installed Agent</label>
-      <select value={installationId} onChange={(event) => setInstallationId(event.target.value)} disabled={loading} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none disabled:opacity-40">
+      <label htmlFor="invocation-installation" className="block text-xs text-brand-on-surface-variant mb-1">Installed Agent</label>
+      <select id="invocation-installation" value={installationId} onChange={(event) => setInstallationId(event.target.value)} disabled={loading} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none disabled:opacity-40">
         <option value="">Select enabled installation</option>
         {enabled.map((item) => <option key={item.installationId} value={item.installationId}>{item.agentId} @ {item.installedVersion} / {item.installedReleaseId}</option>)}
       </select>
-      <label className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Capability</label>
-      <input value={capability} onChange={(event) => setCapability(event.target.value)} disabled={loading} placeholder="Enter declared capability" className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none disabled:opacity-40" />
-      <label className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Input JSON</label>
-      <textarea value={input} onChange={(event) => setInput(event.target.value)} disabled={loading} rows={7} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none resize-y disabled:opacity-40" />
-      <label className="flex items-center gap-2 mt-3 text-xs text-brand-on-surface-variant"><input type="checkbox" checked={stream} onChange={(event) => setStream(event.target.checked)} disabled={loading} /> Stream result over SSE</label>
+      <label htmlFor="invocation-capability" className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Capability</label>
+      <input id="invocation-capability" value={capability} onChange={(event) => setCapability(event.target.value)} disabled={loading} placeholder="Enter declared capability" className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none disabled:opacity-40" />
+      <label htmlFor="invocation-input" className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Input JSON</label>
+      <textarea id="invocation-input" value={input} onChange={(event) => setInput(event.target.value)} disabled={loading} rows={7} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none resize-y disabled:opacity-40" />
+      <label htmlFor="invocation-stream" className="flex items-center gap-2 mt-3 text-xs text-brand-on-surface-variant"><input id="invocation-stream" type="checkbox" checked={stream} onChange={(event) => setStream(event.target.checked)} disabled={loading} /> Stream result over SSE</label>
       <button disabled={loading || !workspace || !installationId || !capability} onClick={onSubmit} className="mt-4 w-full rounded-lg bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{loading ? 'Invoking...' : 'Invoke'}</button>
       {!workspace && <p className="mt-3 text-xs text-amber-300">Select the active Workspace before invoking.</p>}
     </section>

@@ -11,9 +11,11 @@ import LedgerTab from './components/LedgerTab';
 import RegistryTab from './components/RegistryTab';
 import Sidebar from './components/Sidebar';
 import TrustedPublicationTab from './components/TrustedPublicationTab';
+import {requireConsoleConfiguration} from './consoleConfig';
 import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspace} from './types';
 
 export default function App() {
+  requireConsoleConfiguration(import.meta.env);
   const [activeTab, setActiveTab] = useState<'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger'>('registry');
   const [searchQuery, setSearchQuery] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -273,7 +275,7 @@ export default function App() {
         onReadWorkspace={handleReadWorkspace}
         onCreateWorkspace={handleCreateWorkspace}
         userLabel={workspace?.ownerId ?? 'Workspace owner'}
-        apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL && import.meta.env.VITE_NEKIRO_PROVIDER_ID && import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN && import.meta.env.VITE_NEKIRO_OWNER_TOKEN)}
+        apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL && import.meta.env.VITE_NEKIRO_PROVIDER_ID && import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN && import.meta.env.VITE_NEKIRO_OWNER_TOKEN && import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID)}
       />
 
       <main className="ml-64 mt-16 w-[calc(100vw-256px)] h-[calc(100vh-64px)] overflow-y-auto bg-brand-bg p-7 relative">

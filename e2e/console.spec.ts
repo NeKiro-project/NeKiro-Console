@@ -20,6 +20,12 @@ type ReleaseEvidence = {
   cardDigest: string;
 };
 
+type BrowserLeakTracker = {
+  requestUrls: string[];
+  requestBodies: string[];
+  consoleMessages: string[];
+};
+
 const runtimeA: AgentFixture = {
   id: 'browser-runtime-a',
   name: 'Browser Runtime A',
@@ -40,9 +46,16 @@ test.describe.configure({mode: 'serial'});
 
 test('production Console completes trusted publication, invocation, trace, and isolated demos', async ({page}) => {
   const apiRequests: string[] = [];
+  const requestUrls: string[] = [];
+  const requestBodies: string[] = [];
+  const consoleMessages: string[] = [];
+  const leakTracker: BrowserLeakTracker = {requestUrls, requestBodies, consoleMessages};
   page.on('request', (request) => {
+    requestUrls.push(request.url());
+    if (request.postData()) requestBodies.push(request.postData() ?? '');
     if (/\/v[34]\//.test(request.url())) apiRequests.push(request.url());
   });
+  page.on('console', (message) => consoleMessages.push(message.text()));
 
   await page.goto('/');
   await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
@@ -52,8 +65,8 @@ test('production Console completes trusted publication, invocation, trace, and i
   await registerCard(page, runtimeA);
   await registerCard(page, runtimeB);
 
-  const releaseA = await publishTrustedRelease(page, runtimeA);
-  const releaseB = await publishTrustedRelease(page, runtimeB);
+  const releaseA = await publishTrustedRelease(page, runtimeA, leakTracker);
+  const releaseB = await publishTrustedRelease(page, runtimeB, leakTracker);
 
   await page.reload();
   await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
@@ -102,9 +115,14 @@ test('production Console completes trusted publication, invocation, trace, and i
   expect(ledgerText).toContain(releaseB.cardDigest);
 
   apiRequests.length = 0;
-  for (const hash of ['#/demo', '#/demo/glass', '#/demo/terminal', '#/demo/saas']) {
+  for (const {hash, marker} of [
+    {hash: '#/demo', marker: 'Three directions. Same data. Pick one.'},
+    {hash: '#/demo/glass', marker: '6 cards'},
+    {hash: '#/demo/terminal', marker: 'NEKIRO//OPS'},
+    {hash: '#/demo/saas', marker: 'Find the right Agent for every workflow'},
+  ]) {
     await page.goto('/' + hash);
-    await expect(page.locator('body')).not.toContainText('Agent Card Catalog');
+    await expect(page.getByText(marker, {exact: true})).toBeVisible();
   }
   expect(apiRequests).toEqual([]);
 });
@@ -133,7 +151,7 @@ async function registerCard(page: Page, fixture: AgentFixture): Promise<void> {
   await expect(page.getByText(fixture.id, {exact: true}).first()).toBeVisible();
 }
 
-async function publishTrustedRelease(page: Page, fixture: AgentFixture): Promise<ReleaseEvidence> {
+async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTracker: BrowserLeakTracker): Promise<ReleaseEvidence> {
   await page.getByRole('button', {name: 'Trusted Publication', exact: true}).click();
   await page.getByRole('button', {name: new RegExp(escapeRegExp(fixture.id))}).first().click();
   await page.getByLabel('Agent endpoint', {exact: true}).fill(fixture.endpoint);
@@ -153,6 +171,9 @@ async function publishTrustedRelease(page: Page, fixture: AgentFixture): Promise
   await page.getByRole('button', {name: 'Complete Verification', exact: true}).click();
   await expect(page.getByText('verified', {exact: true}).last()).toBeVisible();
   await expect(page.locator('code')).toHaveCount(0);
+  expect(leakTracker.requestUrls.some((url) => url.includes(proof))).toBe(false);
+  expect(leakTracker.requestBodies.some((body) => body.includes(proof))).toBe(false);
+  expect(leakTracker.consoleMessages.some((message) => message.includes(proof))).toBe(false);
 
   await page.getByRole('button', {name: 'Create Release', exact: true}).click();
   await page.getByRole('button', {name: 'Verify', exact: true}).click();

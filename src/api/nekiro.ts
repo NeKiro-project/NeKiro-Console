@@ -892,7 +892,7 @@ function validateInvocationDetail(value: unknown, workspaceId: string): Invocati
   let previous: InvocationEventV03 | undefined;
   let expectedChunkIndex = 0;
   events.forEach((event, index) => {
-    if (event.sequence !== index || event.invocationId !== invocation.invocationId || event.rootTaskId !== invocation.rootTaskId || event.parentInvocationId !== invocation.parentInvocationId || event.traceId !== invocation.traceId || event.workspaceId !== invocation.workspaceId || event.targetAgentId !== invocation.targetAgentId || event.agentCardVersion !== invocation.agentCardVersion || event.capability !== invocation.capability || event.caller.type !== invocation.caller.type || event.caller.id !== invocation.caller.id) throw new Error('Invocation Detail event correlation is invalid');
+    if (event.sequence !== index || event.invocationId !== invocation.invocationId || event.rootTaskId !== invocation.rootTaskId || event.parentInvocationId !== invocation.parentInvocationId || event.traceId !== invocation.traceId || event.workspaceId !== invocation.workspaceId || event.targetAgentId !== invocation.targetAgentId || event.agentCardVersion !== invocation.agentCardVersion || event.agentReleaseId !== invocation.agentReleaseId || event.agentCardDigest !== invocation.agentCardDigest || event.capability !== invocation.capability || event.caller.type !== invocation.caller.type || event.caller.id !== invocation.caller.id) throw new Error('Invocation Detail event correlation is invalid');
     if (eventIDs.has(event.eventId)) throw new Error('Invocation Detail repeats an event');
     eventIDs.add(event.eventId);
     if (!previous) {
