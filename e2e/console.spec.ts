@@ -245,28 +245,35 @@ async function selectOptionContaining(select: Locator, text: string): Promise<vo
     options: Array<{text: string; value: string}>;
   };
   let lastState: SelectState | null = null;
+  let lastSelectError: string | null = null;
   try {
     await expect.poll(
       async () => {
-        lastState = await select.evaluate((element, wanted) => {
-          const selectElement = element as HTMLSelectElement;
-          const options = Array.from(selectElement.options).map((option) => ({
-            text: option.textContent ?? '',
-            value: option.value,
-          }));
-          return {
-            disabled: selectElement.disabled,
-            matches: options.some((option) => option.text.includes(String(wanted)) || option.value.includes(String(wanted))),
-            options,
-          };
-        }, text);
-        return lastState.matches;
+        try {
+          lastState = await select.evaluate((element, wanted) => {
+            const selectElement = element as HTMLSelectElement;
+            const options = Array.from(selectElement.options).map((option) => ({
+              text: option.textContent ?? '',
+              value: option.value,
+            }));
+            return {
+              disabled: selectElement.disabled,
+              matches: options.some((option) => option.text.includes(String(wanted)) || option.value.includes(String(wanted))),
+              options,
+            };
+          }, text);
+          lastSelectError = null;
+          return lastState.matches;
+        } catch (error) {
+          lastSelectError = error instanceof Error ? error.message : String(error);
+          throw error;
+        }
       },
       {message: `Expected an Agent option containing ${text}`},
     ).toBe(true);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`${errorMessage}; lastSelectState=${JSON.stringify(lastState)}`);
+    throw new Error(`${errorMessage}; lastSelectState=${JSON.stringify(lastState)}; lastSelectError=${lastSelectError}`);
   }
   const value = await select.locator('option').evaluateAll((options, wanted) => {
     const option = options.find((item) => {
