@@ -120,8 +120,8 @@ test('production Console completes trusted publication, invocation, trace, and i
   expect(result.traceId).toBeTruthy();
 
   await page.getByRole('button', {name: 'Invocations', exact: true}).click();
-  await selectOptionContaining(installationSelect, runtimeA.id);
-  await page.getByLabel('Capability', {exact: true}).fill(runtimeA.capability);
+  await selectOptionContaining(installationSelect, runtimeB.id);
+  await page.getByLabel('Capability', {exact: true}).fill(runtimeB.capability);
   await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'stream-success', value: 'browser-sse'}));
   await page.getByLabel('Stream result over SSE', {exact: true}).check();
   const sseResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/workspaces/' + workspaceId + '/invocations') && response.request().method() === 'POST' && (response.request().postData() ?? '').includes('"stream":true'));
