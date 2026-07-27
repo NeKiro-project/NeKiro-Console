@@ -68,7 +68,24 @@ test('production Console completes trusted publication, invocation, trace, and i
   const releaseA = await publishTrustedRelease(page, runtimeA, leakTracker);
   const releaseB = await publishTrustedRelease(page, runtimeB, leakTracker);
 
+  const ownerCatalogResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'GET' && url.pathname.endsWith('/v3/agents') && url.search === '';
+  });
   await page.reload();
+  const ownerCatalogResponse = await ownerCatalogResponsePromise;
+  expect(ownerCatalogResponse.status()).toBe(200);
+  const ownerCatalog = await ownerCatalogResponse.json() as {
+    items: Array<{card: {agentId: string; version: string}; publicationStatus: string}>;
+  };
+  expect(ownerCatalog.items.map((item) => ({
+    agentId: item.card.agentId,
+    version: item.card.version,
+    publicationStatus: item.publicationStatus,
+  })), 'Owner discovery must expose both published runtime Cards').toEqual(expect.arrayContaining([
+    {agentId: runtimeA.id, version: '1.0.0', publicationStatus: 'published'},
+    {agentId: runtimeB.id, version: '1.0.0', publicationStatus: 'published'},
+  ]));
   await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
   await installRelease(page, runtimeA, releaseA.releaseId);
   await installRelease(page, runtimeB, releaseB.releaseId);
