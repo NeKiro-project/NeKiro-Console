@@ -28,7 +28,7 @@ This Console follows the MVP spec in docs/superpowers/specs/2026-07-16-nekiro-co
 
 ## Configuration
 
-Create .env.local or export these values for local development:
+Create .env.local or export these six values for local development:
 
     VITE_NEKIRO_API_BASE_URL=https://gateway.example.test
     VITE_NEKIRO_PROVIDER_ID=
@@ -41,6 +41,11 @@ Create .env.local or export these values for local development:
 Publication operations. `VITE_NEKIRO_OWNER_TOKEN` is used only for Discovery,
 Workspace, Installation, Invocation, and Ledger operations. Both are sent only
 as Authorization headers and are not written to browser storage.
+
+The standalone repository is the upstream source for Console Issues #2/#4/#3.
+The platform repository imports the reviewed runtime source into `apps/console`
+and owns the root workspace lockfile and fresh-environment CI; do not maintain
+a second hand-edited production Console implementation.
 
 The operational path is:
 
