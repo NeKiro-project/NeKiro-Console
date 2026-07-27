@@ -190,10 +190,17 @@ async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTrac
   expect(leakTracker.consoleMessages.some((message) => message.includes(proof))).toBe(false);
 
   await page.getByRole('button', {name: 'Create Release', exact: true}).click();
-  await page.getByRole('button', {name: 'Verify', exact: true}).click();
-  await expect(page.getByText('verified', {exact: true}).last()).toBeVisible();
-  await page.getByRole('button', {name: 'Publish', exact: true}).click();
-  await expect(page.getByText('published', {exact: true}).last()).toBeVisible();
+  const releaseSection = page.locator('section').filter({hasText: '3. Immutable Release'});
+  const releaseState = releaseSection.getByText(/^(pending_verification|verified)$/, {exact: true}).last();
+  await expect(releaseState).toBeVisible();
+  if ((await releaseState.textContent()) === 'pending_verification') {
+    const verifyButton = releaseSection.getByRole('button', {name: 'Verify', exact: true});
+    await expect(verifyButton).toBeEnabled();
+    await verifyButton.click();
+  }
+  await expect(releaseSection.getByText('verified', {exact: true}).last()).toBeVisible();
+  await releaseSection.getByRole('button', {name: 'Publish', exact: true}).click();
+  await expect(releaseSection.getByText('published', {exact: true}).last()).toBeVisible();
 
   const mainText = await page.locator('main').innerText();
   const releaseId = mainText.match(/(?:^|\n)Release\n([A-Za-z0-9._:-]+)/m)?.[1];
