@@ -172,10 +172,10 @@ export default function InstallationsTab({
             </select>
           </div>
 
-          <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
-            Trusted Release ID
-            <div className="flex gap-2"><input value={releaseId} onChange={(event) => { invalidatePreflight(); setReleaseId(event.target.value); setLocalError(null); }} disabled={!workspace || preflightLoading || busyLifecycle} placeholder="release-id" className="flex-1 bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50" /><button type="button" onClick={handlePreflight} disabled={!workspace || !selectedAgent || !releaseId || preflightLoading || busyLifecycle} className="px-3 py-2 rounded border border-brand-outline-variant bg-brand-container text-xs text-brand-on-surface-variant disabled:opacity-40">{preflightLoading ? 'Reading...' : 'Preflight'}</button></div>
-          </label>
+          <div className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
+            <label htmlFor="trusted-release-id">Trusted Release ID</label>
+            <div className="flex gap-2"><input id="trusted-release-id" value={releaseId} onChange={(event) => { invalidatePreflight(); setReleaseId(event.target.value); setLocalError(null); }} disabled={!workspace || preflightLoading || busyLifecycle} placeholder="release-id" className="flex-1 bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50" /><button type="button" onClick={handlePreflight} disabled={!workspace || !selectedAgent || !releaseId || preflightLoading || busyLifecycle} className="px-3 py-2 rounded border border-brand-outline-variant bg-brand-container text-xs text-brand-on-surface-variant disabled:opacity-40">{preflightLoading ? 'Reading...' : 'Preflight'}</button></div>
+          </div>
 
           {preflightRelease && <div className="border border-green-400/30 bg-green-500/10 rounded-lg p-3 mb-3 text-xs text-brand-on-surface-variant"><div className="flex items-center gap-2 text-green-300 font-semibold"><ShieldCheck size={14} /> Published Release preflight passed</div><div className="grid grid-cols-2 gap-2 mt-3"><Fact label="Release" value={preflightRelease.releaseId} /><Fact label="Version" value={preflightRelease.agentCardVersion} /><Fact label="Card digest" value={preflightRelease.cardDigest} /><Fact label="Binding" value={preflightRelease.endpointBindingId} /><Fact label="Origin" value={preflightRelease.endpointOrigin} /><Fact label="Path" value={preflightRelease.endpointPath} /></div></div>}
 
