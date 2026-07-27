@@ -135,9 +135,9 @@ export default function RegistryTab(props: RegistryTabProps) {
           <Field label="Owner display name" value={ownerName} onChange={setOwnerName} />
           <Field label="Version" value={version} onChange={setVersion} />
           <Field label="A2A endpoint" value={endpoint} onChange={setEndpoint} />
-          <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant">
+          <label htmlFor="registration-authentication" className="flex flex-col gap-1 text-xs text-brand-on-surface-variant">
             Authentication
-            <select value={authentication} onChange={(event) => setAuthentication(event.target.value as AuthenticationType)} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none">
+            <select id="registration-authentication" value={authentication} onChange={(event) => setAuthentication(event.target.value as AuthenticationType)} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none">
               <option value="none">none</option>
               <option value="api_key">api_key</option>
               <option value="http_bearer">http_bearer</option>
