@@ -222,8 +222,18 @@ async function installRelease(page: Page, fixture: AgentFixture, releaseId: stri
 }
 
 async function selectOptionContaining(select: Locator, text: string): Promise<void> {
+  await expect.poll(
+    async () => select.locator('option').evaluateAll((options, wanted) => options.some((item) => {
+      const option = item as HTMLOptionElement;
+      return option.textContent?.includes(String(wanted)) || option.value.includes(String(wanted));
+    }), text),
+    {message: `Expected an Agent option containing ${text}`},
+  ).toBe(true);
   const value = await select.locator('option').evaluateAll((options, wanted) => {
-    const option = options.find((item) => item.textContent?.includes(String(wanted)));
+    const option = options.find((item) => {
+      const candidate = item as HTMLOptionElement;
+      return candidate.textContent?.includes(String(wanted)) || candidate.value.includes(String(wanted));
+    });
     if (!option) throw new Error(`No select option contains ${String(wanted)}`);
     return (option as HTMLOptionElement).value;
   }, text);
