@@ -152,7 +152,7 @@ export default function RegistryTab(props: RegistryTabProps) {
           </label>
           <label className="col-span-2 flex flex-col gap-1 text-xs text-brand-on-surface-variant">
             Capabilities JSON
-            <textarea value={capabilitiesJson} onChange={(event) => setCapabilitiesJson(event.target.value)} rows={9} className="font-mono-code bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none" />
+            <textarea aria-label="Capabilities JSON" value={capabilitiesJson} onChange={(event) => setCapabilitiesJson(event.target.value)} rows={9} className="font-mono-code bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none" />
           </label>
           <div className="col-span-2 flex justify-end gap-3">
             <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded border border-brand-outline-variant text-xs text-brand-on-surface-variant">Cancel</button>
