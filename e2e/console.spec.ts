@@ -239,21 +239,35 @@ async function installRelease(page: Page, fixture: AgentFixture, releaseId: stri
 }
 
 async function selectOptionContaining(select: Locator, text: string): Promise<void> {
-  await expect.poll(
-    async () => select.evaluate((element, wanted) => {
-      const selectElement = element as HTMLSelectElement;
-      const options = Array.from(selectElement.options).map((option) => ({
-        text: option.textContent ?? '',
-        value: option.value,
-      }));
-      return {
-        disabled: selectElement.disabled,
-        matches: options.some((option) => option.text.includes(String(wanted)) || option.value.includes(String(wanted))),
-        options,
-      };
-    }, text),
-    {message: `Expected an Agent option containing ${text}`},
-  ).toMatchObject({matches: true});
+  type SelectState = {
+    disabled: boolean;
+    matches: boolean;
+    options: Array<{text: string; value: string}>;
+  };
+  let lastState: SelectState | null = null;
+  try {
+    await expect.poll(
+      async () => {
+        lastState = await select.evaluate((element, wanted) => {
+          const selectElement = element as HTMLSelectElement;
+          const options = Array.from(selectElement.options).map((option) => ({
+            text: option.textContent ?? '',
+            value: option.value,
+          }));
+          return {
+            disabled: selectElement.disabled,
+            matches: options.some((option) => option.text.includes(String(wanted)) || option.value.includes(String(wanted))),
+            options,
+          };
+        }, text);
+        return lastState.matches;
+      },
+      {message: `Expected an Agent option containing ${text}`},
+    ).toBe(true);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`${errorMessage}; lastSelectState=${JSON.stringify(lastState)}`);
+  }
   const value = await select.locator('option').evaluateAll((options, wanted) => {
     const option = options.find((item) => {
       const candidate = item as HTMLOptionElement;
