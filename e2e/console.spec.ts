@@ -202,10 +202,11 @@ async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTrac
   await releaseSection.getByRole('button', {name: 'Publish', exact: true}).click();
   await expect(releaseSection.getByText('published', {exact: true}).last()).toBeVisible();
 
-  const mainText = await page.locator('main').innerText();
-  const releaseId = mainText.match(/(?:^|\n)Release\n([A-Za-z0-9._:-]+)/m)?.[1];
-  const cardDigest = mainText.match(/(?:^|\n)Card digest\n([0-9a-f]{64})/m)?.[1];
-  if (!releaseId || !cardDigest) throw new Error('Console did not render immutable Release provenance');
+  const releaseId = await readFactValue(releaseSection, 'Release');
+  const cardDigest = await readFactValue(releaseSection, 'Card digest');
+  if (!/^[A-Za-z0-9._:-]+$/.test(releaseId) || !/^[0-9a-f]{64}$/.test(cardDigest)) {
+    throw new Error('Console did not render immutable Release provenance');
+  }
   return {releaseId, cardDigest};
 }
 
@@ -233,6 +234,11 @@ async function textMatching(page: Page, pattern: RegExp): Promise<string> {
   const value = (await page.getByText(pattern).last().textContent())?.trim();
   if (!value) throw new Error(`Console did not render text matching ${pattern}`);
   return value;
+}
+
+async function readFactValue(section: Locator, label: string): Promise<string> {
+  const labelElement = section.getByText(label, {exact: true});
+  return ((await labelElement.locator('..').locator('div').nth(1).textContent()) ?? '').trim();
 }
 
 function injectChallengeProof(service: string, challengeId: string, proof: string): void {
