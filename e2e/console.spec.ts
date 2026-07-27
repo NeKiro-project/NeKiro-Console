@@ -75,8 +75,18 @@ test('production Console completes trusted publication, invocation, trace, and i
 
   await page.getByRole('button', {name: 'Installations', exact: true}).click();
   await page.getByLabel('Trusted Release ID', {exact: true}).fill('release-does-not-exist');
+  const preflightResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/releases/release-does-not-exist') && response.request().method() === 'GET');
   await page.getByRole('button', {name: 'Preflight', exact: true}).click();
+  const preflightResponse = await preflightResponsePromise;
+  expect(preflightResponse.status()).toBe(404);
+  const preflightError = await preflightResponse.json() as {code: string; traceId: string};
+  expect(preflightError.code).toBe('NOT_FOUND');
+  expect(preflightError.traceId).toBeTruthy();
+  const preflightHeaderTrace = preflightResponse.headers()['x-nek-trace-id'];
+  if (preflightHeaderTrace !== undefined) expect(preflightHeaderTrace).toBe(preflightError.traceId);
   await expect(page.getByText(/NOT_FOUND/)).toBeVisible();
+  await expect(page.getByText(/HTTP 404/)).toBeVisible();
+  await expect(page.getByText(new RegExp('traceId: ' + escapeRegExp(preflightError.traceId)))).toBeVisible();
 
   await page.getByRole('button', {name: 'Invocations', exact: true}).click();
   const installationSelect = page.getByLabel('Installed Agent', {exact: true});
@@ -97,7 +107,11 @@ test('production Console completes trusted publication, invocation, trace, and i
   await page.getByLabel('Capability', {exact: true}).fill(runtimeA.capability);
   await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'stream-success', value: 'browser-sse'}));
   await page.getByLabel('Stream result over SSE', {exact: true}).check();
+  const sseResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/workspaces/' + workspaceId + '/invocations') && response.request().method() === 'POST' && (response.request().postData() ?? '').includes('"stream":true'));
   await page.getByRole('button', {name: 'Invoke', exact: true}).click();
+  const sseResponse = await sseResponsePromise;
+  expect(sseResponse.status()).toBe(200);
+  assertResultStream(await sseResponse.text());
   await expect(page.getByText('#0 accepted', {exact: true})).toBeVisible();
   await expect(page.getByText(/completed/, {exact: true}).last()).toBeVisible();
 
@@ -220,6 +234,32 @@ function injectChallengeProof(service: string, challengeId: string, proof: strin
     'exec', '-T', service, 'sh', '-c',
     'umask 077; cat > "$NEKIRO_AGENT_CHALLENGE_DIRECTORY/$1"', 'sh', challengeId,
   ], {input: proof, encoding: 'utf8', stdio: ['pipe', 'ignore', 'pipe']});
+}
+
+function assertResultStream(body: string): void {
+  const events = body.trim().split(/\r?\n\r?\n/).filter(Boolean).map((block) => {
+    const line = block.split(/\r?\n/).find((value) => value.startsWith('data: '));
+    if (!line) throw new Error('SSE response omitted a data line');
+    return JSON.parse(line.slice('data: '.length)) as {
+      schemaVersion: string;
+      sequence: number;
+      type: string;
+      status: string;
+      invocationId: string;
+      rootTaskId: string;
+      traceId: string;
+    };
+  });
+  if (events.length < 2) throw new Error('SSE response did not contain accepted and terminal events');
+  const first = events[0];
+  const last = events[events.length - 1];
+  if (first.type !== 'accepted' || first.status !== 'pending' || first.sequence !== 0) throw new Error('SSE response did not begin with accepted/pending sequence 0');
+  events.forEach((event, index) => {
+    if (event.schemaVersion !== '2' || event.sequence !== index || event.invocationId !== first.invocationId || event.rootTaskId !== first.rootTaskId || event.traceId !== first.traceId) {
+      throw new Error('SSE response correlation or sequence changed');
+    }
+  });
+  if (last.type !== 'completed' || last.status !== 'succeeded') throw new Error('SSE response did not end with completed/succeeded');
 }
 
 function required(name: string): string {
