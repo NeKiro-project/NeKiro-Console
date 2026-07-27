@@ -230,10 +230,37 @@ async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTrac
 async function installRelease(page: Page, fixture: AgentFixture, releaseId: string): Promise<void> {
   await page.getByRole('button', {name: 'Installations', exact: true}).click();
   const agentSelect = page.getByLabel('Published Agent', {exact: true});
-  await expect.poll(
-    () => agentSelect.count(),
-    {message: 'Expected the Published Agent select to render'},
-  ).toBe(1);
+  type InstallationDomState = {
+    headings: string[];
+    labels: string[];
+    selects: Array<{disabled: boolean; optionCount: number; options: string[]}>;
+    buttons: string[];
+  };
+  let lastDomState: InstallationDomState | null = null;
+  try {
+    await expect.poll(
+      async () => {
+        lastDomState = await page.evaluate(() => ({
+          headings: Array.from(document.querySelectorAll('main h1, main h2')).map((element) => element.textContent?.trim() ?? ''),
+          labels: Array.from(document.querySelectorAll('main label')).map((element) => element.textContent?.trim() ?? ''),
+          selects: Array.from(document.querySelectorAll('main select')).map((element) => {
+            const select = element as HTMLSelectElement;
+            return {
+              disabled: select.disabled,
+              optionCount: select.options.length,
+              options: Array.from(select.options).map((option) => option.textContent ?? ''),
+            };
+          }),
+          buttons: Array.from(document.querySelectorAll('main button')).map((element) => element.textContent?.trim() ?? ''),
+        }));
+        return agentSelect.count();
+      },
+      {message: 'Expected the Published Agent select to render'},
+    ).toBe(1);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`${errorMessage}; lastInstallationDomState=${JSON.stringify(lastDomState)}`);
+  }
   await selectOptionContaining(agentSelect, fixture.id);
   await page.getByLabel('Trusted Release ID', {exact: true}).fill(releaseId);
   await page.getByRole('button', {name: 'Preflight', exact: true}).click();
