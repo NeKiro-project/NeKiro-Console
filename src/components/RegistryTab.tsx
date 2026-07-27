@@ -293,7 +293,7 @@ function AgentRow({agent, selected, onSelect}: {agent: Agent; selected: boolean;
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-semibold text-brand-on-surface">{agent.name}</div>
-          <div className="font-mono-code text-[11px] text-brand-on-surface-variant mt-1">{agent.id} @ {agent.version}</div>
+          <div className="font-mono-code text-[11px] text-brand-on-surface-variant mt-1"><span>{agent.id}</span><span> @ {agent.version}</span></div>
         </div>
         <StatusBadge status={agent.status} />
       </div>
