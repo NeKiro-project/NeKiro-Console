@@ -164,13 +164,13 @@ export default function InstallationsTab({
             </div>
           </div>
 
-          <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
-            Published Agent
-             <select value={selectedAgentKey} onChange={(event) => handleSelectAgent(event.target.value)} disabled={!workspace || publishedAgents.length === 0 || busyLifecycle} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50">
+          <div className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
+            <label htmlFor="installation-agent">Published Agent</label>
+            <select id="installation-agent" value={selectedAgentKey} onChange={(event) => handleSelectAgent(event.target.value)} disabled={!workspace || publishedAgents.length === 0 || busyLifecycle} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50">
               {publishedAgents.length === 0 && <option value="">No published agents returned</option>}
-               {publishedAgents.map((agent) => <option key={agentKey(agent)} value={agentKey(agent)}>{agent.name} ({agent.version})</option>)}
+              {publishedAgents.map((agent) => <option key={agentKey(agent)} value={agentKey(agent)}>{agent.name} ({agent.version})</option>)}
             </select>
-          </label>
+          </div>
 
           <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
             Trusted Release ID

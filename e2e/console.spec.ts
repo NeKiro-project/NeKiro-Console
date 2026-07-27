@@ -230,37 +230,6 @@ async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTrac
 async function installRelease(page: Page, fixture: AgentFixture, releaseId: string): Promise<void> {
   await page.getByRole('button', {name: 'Installations', exact: true}).click();
   const agentSelect = page.getByLabel('Published Agent', {exact: true});
-  type InstallationDomState = {
-    headings: string[];
-    labels: string[];
-    selects: Array<{disabled: boolean; optionCount: number; options: string[]}>;
-    buttons: string[];
-  };
-  let lastDomState: InstallationDomState | null = null;
-  try {
-    await expect.poll(
-      async () => {
-        lastDomState = await page.evaluate(() => ({
-          headings: Array.from(document.querySelectorAll('main h1, main h2')).map((element) => element.textContent?.trim() ?? ''),
-          labels: Array.from(document.querySelectorAll('main label')).map((element) => element.textContent?.trim() ?? ''),
-          selects: Array.from(document.querySelectorAll('main select')).map((element) => {
-            const select = element as HTMLSelectElement;
-            return {
-              disabled: select.disabled,
-              optionCount: select.options.length,
-              options: Array.from(select.options).map((option) => option.textContent ?? ''),
-            };
-          }),
-          buttons: Array.from(document.querySelectorAll('main button')).map((element) => element.textContent?.trim() ?? ''),
-        }));
-        return agentSelect.count();
-      },
-      {message: 'Expected the Published Agent select to render'},
-    ).toBe(1);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`${errorMessage}; lastInstallationDomState=${JSON.stringify(lastDomState)}`);
-  }
   await selectOptionContaining(agentSelect, fixture.id);
   await page.getByLabel('Trusted Release ID', {exact: true}).fill(releaseId);
   await page.getByRole('button', {name: 'Preflight', exact: true}).click();
@@ -270,42 +239,13 @@ async function installRelease(page: Page, fixture: AgentFixture, releaseId: stri
 }
 
 async function selectOptionContaining(select: Locator, text: string): Promise<void> {
-  type SelectState = {
-    disabled: boolean;
-    matches: boolean;
-    options: Array<{text: string; value: string}>;
-  };
-  let lastState: SelectState | null = null;
-  let lastSelectError: string | null = null;
-  try {
-    await expect.poll(
-      async () => {
-        try {
-          lastState = await select.evaluate((element, wanted) => {
-            const selectElement = element as HTMLSelectElement;
-            const options = Array.from(selectElement.options).map((option) => ({
-              text: option.textContent ?? '',
-              value: option.value,
-            }));
-            return {
-              disabled: selectElement.disabled,
-              matches: options.some((option) => option.text.includes(String(wanted)) || option.value.includes(String(wanted))),
-              options,
-            };
-          }, text);
-          lastSelectError = null;
-          return lastState.matches;
-        } catch (error) {
-          lastSelectError = error instanceof Error ? error.message : String(error);
-          throw error;
-        }
-      },
-      {message: `Expected an Agent option containing ${text}`},
-    ).toBe(true);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`${errorMessage}; lastSelectState=${JSON.stringify(lastState)}; lastSelectError=${lastSelectError}`);
-  }
+  await expect.poll(
+    async () => select.locator('option').evaluateAll((options, wanted) => options.some((item) => {
+      const option = item as HTMLOptionElement;
+      return option.textContent?.includes(String(wanted)) || option.value.includes(String(wanted));
+    }), text),
+    {message: `Expected an Agent option containing ${text}`},
+  ).toBe(true);
   const value = await select.locator('option').evaluateAll((options, wanted) => {
     const option = options.find((item) => {
       const candidate = item as HTMLOptionElement;
