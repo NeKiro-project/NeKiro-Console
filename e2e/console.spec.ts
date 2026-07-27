@@ -230,6 +230,10 @@ async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTrac
 async function installRelease(page: Page, fixture: AgentFixture, releaseId: string): Promise<void> {
   await page.getByRole('button', {name: 'Installations', exact: true}).click();
   const agentSelect = page.getByLabel('Published Agent', {exact: true});
+  await expect.poll(
+    () => agentSelect.count(),
+    {message: 'Expected the Published Agent select to render'},
+  ).toBe(1);
   await selectOptionContaining(agentSelect, fixture.id);
   await page.getByLabel('Trusted Release ID', {exact: true}).fill(releaseId);
   await page.getByRole('button', {name: 'Preflight', exact: true}).click();
