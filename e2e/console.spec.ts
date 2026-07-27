@@ -27,7 +27,7 @@ type BrowserLeakTracker = {
 };
 
 const runtimeA: AgentFixture = {
-  id: 'browser-runtime-a',
+  id: 'runtime-a',
   name: 'Browser Runtime A',
   endpoint: 'http://runtime-a:8091',
   service: 'runtime-a',
@@ -35,7 +35,7 @@ const runtimeA: AgentFixture = {
 };
 
 const runtimeB: AgentFixture = {
-  id: 'browser-runtime-b',
+  id: 'runtime-b',
   name: 'Browser Runtime B',
   endpoint: 'http://runtime-b:8092',
   service: 'runtime-b',
