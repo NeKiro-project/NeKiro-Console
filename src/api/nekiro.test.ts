@@ -6,7 +6,9 @@ import {
   mapCatalogEntry,
   NekiroApiClient,
   NekiroApiError,
+  validateTrustedInstallation,
   type AgentCardV02,
+  type AgentRelease,
   type CatalogEntry,
 } from './nekiro';
 
@@ -176,13 +178,97 @@ test('NekiroApiClient covers Workspace and Installation v3 paths', async () => {
     token: 'test-token',
     fetchImpl: async (input, init) => {
       requests.push({url: String(input), init});
-      return new Response(JSON.stringify({items: []}), {status: 200});
+      return new Response(JSON.stringify({items: [{
+        installationId: 'installation-1', workspaceId: 'workspace.alpha', agentId: 'agent.echo', versionConstraint: '1.2.3', installedVersion: '1.2.3', installedReleaseId: 'release-1', acceptedPermissions: [], status: 'enabled', installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
+      }]}), {status: 200});
     },
   });
 
-  await client.listInstallations('workspace.alpha', {limit: 50, cursor: 'next'});
+  const result = await client.listInstallations('workspace.alpha', {limit: 50, cursor: 'next'});
 
+  assert.equal(result.items[0]?.installedReleaseId, 'release-1');
   assert.equal(requests[0]?.url, 'https://api.example.test/v3/workspaces/workspace.alpha/installations?limit=50&cursor=next');
+});
+
+test('NekiroApiClient strictly maps every Installation read response', async () => {
+  const installation = {
+    installationId: 'installation-1', workspaceId: 'workspace.alpha', agentId: 'agent.echo', versionConstraint: '1.2.3', installedVersion: '1.2.3', installedReleaseId: 'release-1', acceptedPermissions: [], status: 'enabled', installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
+  };
+  let response: Record<string, unknown> = installation;
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test', token: 'owner-token',
+    fetchImpl: async () => new Response(JSON.stringify(response), {status: 200}),
+  });
+  assert.equal((await client.getInstallation('workspace.alpha', 'installation-1')).installationId, 'installation-1');
+  assert.equal((await client.updateInstallation('workspace.alpha', 'installation-1', 'disabled')).status, 'enabled');
+  assert.equal((await client.uninstallAgent('workspace.alpha', 'installation-1')).installedReleaseId, 'release-1');
+  response = {...installation, unexpected: true};
+  await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /unknown field/);
+});
+
+test('NekiroApiClient enforces Installation v2 semantic response rules', async () => {
+  const base = {
+    installationId: 'installation-1', workspaceId: 'workspace.alpha', agentId: 'agent.echo', versionConstraint: '^1.0.0', installedVersion: '1.2.3', acceptedPermissions: ['read', 'write'], status: 'enabled', installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
+  };
+  let response: Record<string, unknown> = base;
+  const client = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'owner-token', fetchImpl: async () => new Response(JSON.stringify(response), {status: 200})});
+  assert.equal((await client.getInstallation('workspace.alpha', 'installation-1')).installedVersion, '1.2.3');
+  response = {...base, installedVersion: '2.0.0'};
+  await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /does not satisfy/);
+  response = {...base, status: 'uninstalled', uninstalledAt: '2026-07-26T00:01:00Z'};
+  await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /uninstalledAt must equal/);
+  response = {...base, installedAt: '2026-07-26T00:01:00Z', updatedAt: '2026-07-25T00:00:00Z'};
+  await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /must not precede/);
+});
+
+test('NekiroApiClient installs an exact trusted version and preserves Release provenance', async () => {
+  const requests: Array<{url: string; init?: RequestInit}> = [];
+  const installation = {
+    installationId: 'installation-1',
+    workspaceId: 'workspace.alpha',
+    agentId: 'agent.echo',
+    versionConstraint: '1.2.3',
+    installedVersion: '1.2.3',
+    installedReleaseId: 'release-1',
+    acceptedPermissions: [],
+    status: 'enabled',
+    installedAt: '2026-07-26T00:00:00Z',
+    updatedAt: '2026-07-26T00:00:00Z',
+  };
+  const client = new NekiroApiClient({
+    baseUrl: 'https://api.example.test',
+    token: 'owner-token',
+    fetchImpl: async (input, init) => {
+      requests.push({url: String(input), init});
+      return new Response(JSON.stringify(installation), {status: 201});
+    },
+  });
+  const result = await client.installAgent('workspace.alpha', {agentId: 'agent.echo', versionConstraint: '1.2.3', acceptedPermissions: []});
+  assert.equal(result.installedReleaseId, 'release-1');
+  assert.equal(requests[0]?.url, 'https://api.example.test/v3/workspaces/workspace.alpha/installations');
+  assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {agentId: 'agent.echo', versionConstraint: '1.2.3', acceptedPermissions: []});
+});
+
+test('trusted Installation validation rejects missing Release identity or non-enabled state', () => {
+  const release = trustedRelease() as unknown as AgentRelease;
+  const installation = {
+    installationId: 'installation-1', workspaceId: 'workspace.alpha', agentId: 'agent.echo',
+    versionConstraint: '1.2.3', installedVersion: '1.2.3', installedReleaseId: 'release-1',
+    acceptedPermissions: [], status: 'enabled' as const, installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
+  };
+  assert.doesNotThrow(() => validateTrustedInstallation(installation, release, 'agent.echo'));
+  assert.throws(() => validateTrustedInstallation({...installation, installedReleaseId: undefined}, release, 'agent.echo'), /Release identity/);
+  assert.throws(() => validateTrustedInstallation({...installation, status: 'disabled'}, release, 'agent.echo'), /Release identity/);
+});
+
+test('provider and Workspace-owner clients keep bearer contexts separate', async () => {
+  const authorization: string[] = [];
+  const response = trustedResponse(trustedRelease(), 200);
+  const providerClient = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'provider-token', fetchImpl: async (_input, init) => { authorization.push(new Headers(init?.headers).get('Authorization') ?? ''); return response.clone(); }});
+  const ownerClient = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'owner-token', fetchImpl: async (_input, init) => { authorization.push(new Headers(init?.headers).get('Authorization') ?? ''); return response.clone(); }});
+  await providerClient.getAgentRelease('release-1');
+  await ownerClient.getAgentRelease('release-1');
+  assert.deepEqual(authorization, ['Bearer provider-token', 'Bearer owner-token']);
 });
 
 test('NekiroApiClient constructs a strict v4 JSON invocation request', async () => {
@@ -230,6 +316,14 @@ test('NekiroApiClient reads Workspace-scoped v4 Invocation and Trace paths', asy
   assert.deepEqual(requests, ['https://api.example.test/v4/workspaces/workspace.alpha/invocations/inv-1', 'https://api.example.test/v4/workspaces/workspace.alpha/traces/trace-1']);
 });
 
+test('NekiroApiClient rejects Invocation Detail provenance changes', async () => {
+  const cardDigest = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const record = {invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1', caller: {type: 'user', id: 'owner-a'}, workspaceId: 'workspace.alpha', targetAgentId: 'runtime.echo', agentCardVersion: '1.0.0', agentReleaseId: 'release-1', agentCardDigest: cardDigest, capability: 'runtime.echo', status: 'pending', createdAt: '2026-07-21T00:00:00Z', updatedAt: '2026-07-21T00:00:00Z'};
+  const event = {schemaVersion: '0.3', eventId: 'evt-1', sequence: 0, occurredAt: '2026-07-21T00:00:00Z', type: 'created', status: 'pending', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1', caller: {type: 'user', id: 'owner-a'}, workspaceId: 'workspace.alpha', targetAgentId: 'runtime.echo', agentCardVersion: '1.0.0', agentReleaseId: 'release-1', agentCardDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', capability: 'runtime.echo'};
+  const client = new NekiroApiClient({baseUrl: 'https://api.example.test', token: 'test-token', fetchImpl: async () => new Response(JSON.stringify({invocation: record, events: [event]}), {status: 200})});
+  await assert.rejects(() => client.getInvocation('workspace.alpha', 'inv-1'), /Invocation Detail event correlation is invalid/);
+});
+
 test('NekiroApiClient validates ordered SSE events and requires a terminal event', async () => {
   const accepted = {schemaVersion: '2', sequence: 0, type: 'accepted', status: 'pending', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1'};
   const completed = {schemaVersion: '2', sequence: 1, type: 'completed', status: 'succeeded', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1'};
@@ -267,6 +361,9 @@ test('NekiroApiClient rejects omitted Installation limits instead of inventing o
 test('NekiroApiClient rejects missing or whitespace bearer configuration', () => {
   assert.throws(() => new NekiroApiClient({baseUrl: 'https://api.example.test', token: ''}), /bearer token is required/);
   assert.throws(() => new NekiroApiClient({baseUrl: 'https://api.example.test', token: ' token'}), /must not contain whitespace/);
+  assert.throws(() => new NekiroApiClient({baseUrl: 'https://api.example.test/v1', token: 'test-token'}), /base URL is invalid/);
+  assert.throws(() => new NekiroApiClient({baseUrl: 'https://localhost', token: 'test-token'}), /base URL is invalid/);
+  assert.throws(() => new NekiroApiClient({baseUrl: 'https://192.0.2.10', token: 'test-token'}), /base URL is invalid/);
 });
 
 test('NekiroApiClient rejects an empty JSON success body', async () => {

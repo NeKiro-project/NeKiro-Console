@@ -1,5 +1,5 @@
 import React, {useMemo, useState} from 'react';
-import {AlertTriangle, CheckCircle2, Code2, Database, Layers, Loader2, Plus, Rocket, ShieldCheck, ShieldOff, UploadCloud} from 'lucide-react';
+import {AlertTriangle, CheckCircle2, Code2, Database, Layers, Loader2, Plus, ShieldCheck, UploadCloud} from 'lucide-react';
 
 import {buildAgentCard, toPlatformErrorView, type AgentCardV02, type AuthenticationType} from '../api/nekiro';
 import type {Agent, PlatformErrorView} from '../types';
@@ -9,8 +9,6 @@ interface RegistryTabProps {
   draftAgents: Agent[];
   onRegisterAgent: (card: AgentCardV02) => Promise<Agent>;
   onPublishAgent: (agent: Agent) => Promise<void>;
-  onDisableAgent: (agent: Agent) => Promise<void>;
-  onOpenInstall: (agent: Agent) => void;
   catalogLoading: boolean;
   catalogError: PlatformErrorView | null;
   catalogReady: boolean;
@@ -38,8 +36,6 @@ export default function RegistryTab(props: RegistryTabProps) {
     draftAgents,
     onRegisterAgent,
     onPublishAgent,
-    onDisableAgent,
-    onOpenInstall,
     catalogLoading,
     catalogError,
     catalogReady,
@@ -57,7 +53,7 @@ export default function RegistryTab(props: RegistryTabProps) {
   const [ownerId, setOwnerId] = useState(defaultOwnerId);
   const [ownerName, setOwnerName] = useState(defaultOwnerName);
   const [version, setVersion] = useState('1.0.0');
-  const [endpoint, setEndpoint] = useState('http://127.0.0.1:9000/a2a');
+  const [endpoint, setEndpoint] = useState('');
   const [authentication, setAuthentication] = useState<AuthenticationType>('none');
   const [permissionsText, setPermissionsText] = useState('');
   const [capabilitiesJson, setCapabilitiesJson] = useState(defaultCapabilities);
@@ -109,7 +105,7 @@ export default function RegistryTab(props: RegistryTabProps) {
         <div>
           <div className="font-mono-label text-[10px] uppercase tracking-[0.24em] text-brand-primary mb-2">Registry</div>
           <h2 className="text-2xl font-bold text-brand-on-surface">Agent Card Catalog</h2>
-          <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Live v3 Catalog surface for Agent Card v0.2 registration, discovery, publish, disable, and installation handoff.</p>
+          <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Live v3 Catalog surface for Agent Card v0.2 registration and discovery. Trust and Release lifecycle operations are handled in Trusted Publication.</p>
         </div>
         <button onClick={() => setShowForm((value) => !value)} className="px-4 py-2 rounded-lg bg-brand-primary text-brand-on-primary text-xs font-semibold flex items-center gap-2 hover:opacity-95">
           <Plus size={15} /> Register Agent Card
@@ -139,9 +135,9 @@ export default function RegistryTab(props: RegistryTabProps) {
           <Field label="Owner display name" value={ownerName} onChange={setOwnerName} />
           <Field label="Version" value={version} onChange={setVersion} />
           <Field label="A2A endpoint" value={endpoint} onChange={setEndpoint} />
-          <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant">
+          <label htmlFor="registration-authentication" className="flex flex-col gap-1 text-xs text-brand-on-surface-variant">
             Authentication
-            <select value={authentication} onChange={(event) => setAuthentication(event.target.value as AuthenticationType)} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none">
+            <select id="registration-authentication" aria-label="Authentication" value={authentication} onChange={(event) => setAuthentication(event.target.value as AuthenticationType)} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none">
               <option value="none">none</option>
               <option value="api_key">api_key</option>
               <option value="http_bearer">http_bearer</option>
@@ -156,7 +152,7 @@ export default function RegistryTab(props: RegistryTabProps) {
           </label>
           <label className="col-span-2 flex flex-col gap-1 text-xs text-brand-on-surface-variant">
             Capabilities JSON
-            <textarea value={capabilitiesJson} onChange={(event) => setCapabilitiesJson(event.target.value)} rows={9} className="font-mono-code bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none" />
+            <textarea aria-label="Capabilities JSON" value={capabilitiesJson} onChange={(event) => setCapabilitiesJson(event.target.value)} rows={9} className="font-mono-code bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none" />
           </label>
           <div className="col-span-2 flex justify-end gap-3">
             <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 rounded border border-brand-outline-variant text-xs text-brand-on-surface-variant">Cancel</button>
@@ -176,7 +172,7 @@ export default function RegistryTab(props: RegistryTabProps) {
           <div className="overflow-y-auto">
             <AgentListSection
               title="My drafts"
-              description="Server-returned drafts from this browser session. Publish one to make it discoverable."
+              description="Server-returned drafts from this browser session. Complete Trusted Publication before installation."
               agents={filteredDraftAgents}
               emptyMessage="No draft Agent Cards in this session. Submit draft to stage one for publishing."
               selectedAgent={selectedAgent}
@@ -184,7 +180,7 @@ export default function RegistryTab(props: RegistryTabProps) {
             />
             <AgentListSection
               title="Published catalog"
-              description="Live discovery only returns published Agent Card versions from the Control Plane."
+              description="Live discovery returns published Catalog versions. Catalog publication is not Trusted Publication."
               agents={filteredPublishedAgents}
               emptyMessage="No published Catalog entries returned. This is an empty result, not a mock fallback."
               selectedAgent={selectedAgent}
@@ -202,9 +198,8 @@ export default function RegistryTab(props: RegistryTabProps) {
                   <div className="text-xs text-brand-on-surface-variant mt-1">Owner {selectedAgent.owner} ({selectedAgent.ownerId})</div>
                 </div>
                 <div className="flex gap-2">
-                  {selectedAgent.status === 'draft' && <ActionButton icon={<Rocket size={13} />} label="Publish" onClick={() => onPublishAgent(selectedAgent)} />}
-                  {selectedAgent.status === 'published' && <ActionButton icon={<ShieldOff size={13} />} label="Disable" onClick={() => onDisableAgent(selectedAgent)} />}
-                  {selectedAgent.status === 'published' && <ActionButton icon={<Database size={13} />} label="Install" onClick={() => onOpenInstall(selectedAgent)} />}
+                  {selectedAgent.status === 'draft' && <ActionButton icon={<UploadCloud size={13} />} label="Publish to Catalog" onClick={() => onPublishAgent(selectedAgent)} />}
+                  {selectedAgent.status === 'published' && <span className="text-[10px] text-brand-on-surface-variant border border-brand-outline-variant rounded px-2 py-1">Review Release in Trusted Publication</span>}
                 </div>
               </div>
               <div className="p-4 grid grid-cols-3 gap-3 text-xs border-b border-brand-outline-variant/40">
@@ -298,7 +293,7 @@ function AgentRow({agent, selected, onSelect}: {agent: Agent; selected: boolean;
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-semibold text-brand-on-surface">{agent.name}</div>
-          <div className="font-mono-code text-[11px] text-brand-on-surface-variant mt-1">{agent.id} @ {agent.version}</div>
+          <div className="font-mono-code text-[11px] text-brand-on-surface-variant mt-1"><span>{agent.id}</span><span> @ {agent.version}</span></div>
         </div>
         <StatusBadge status={agent.status} />
       </div>
