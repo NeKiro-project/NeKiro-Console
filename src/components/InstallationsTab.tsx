@@ -4,6 +4,7 @@ import {AlertTriangle, Database, Loader2, RefreshCw, ShieldCheck, Trash2} from '
 import {NekiroApiError, toPlatformErrorView, type AgentRelease, type NekiroApiClient} from '../api/nekiro';
 import {agentKey, isCurrentRequest, matchesPublishedRelease, nextRequestGeneration} from '../consolePolicy';
 import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspace} from '../types';
+import PublicAgentInstallPanel from './PublicAgentInstallPanel';
 
 interface InstallationsTabProps {
   workspace: Workspace | null;
@@ -17,6 +18,7 @@ interface InstallationsTabProps {
   onUpdateInstallation: (installation: Installation, status: Exclude<InstallationStatus, 'uninstalled'>) => Promise<void>;
   onUninstall: (installation: Installation) => Promise<boolean>;
   onRefresh: () => void;
+  onPublicInstalled?: () => Promise<void>;
 }
 
 export default function InstallationsTab({
@@ -31,6 +33,7 @@ export default function InstallationsTab({
   onUpdateInstallation,
   onUninstall,
   onRefresh,
+  onPublicInstalled = async () => {},
 }: InstallationsTabProps) {
   const publishedAgents = useMemo(() => agents.filter((agent) => agent.status === 'published'), [agents]);
   const [selectedAgentKey, setSelectedAgentKey] = useState('');
@@ -48,15 +51,17 @@ export default function InstallationsTab({
   const invalidatePreflight = () => {
     preflightGeneration.current = nextRequestGeneration(preflightGeneration.current);
     setPreflightRelease(null);
+    setPreflightLoading(false);
   };
 
   useEffect(() => {
-    if (!selectedAgentKey && publishedAgents[0]) {
-      const next = publishedAgents[0];
+    if (selectedAgentKey && !publishedAgents.some((agent) => agentKey(agent) === selectedAgentKey)) {
       invalidatePreflight();
-      setSelectedAgentKey(agentKey(next));
-      setVersionConstraint(next.version);
-      setAcceptedPermissions(next.permissions.map((permission) => permission.id).sort());
+      setSelectedAgentKey('');
+      setVersionConstraint('');
+      setAcceptedPermissions([]);
+      setReleaseId('');
+      setLocalError(null);
     }
   }, [publishedAgents, selectedAgentKey]);
 
@@ -80,7 +85,7 @@ export default function InstallationsTab({
     invalidatePreflight();
     setSelectedAgentKey(selectedKey);
     setVersionConstraint(agent?.version ?? '');
-    setAcceptedPermissions(agent?.permissions.map((permission) => permission.id).sort() ?? []);
+    setAcceptedPermissions([]);
     setReleaseId('');
     setPreflightRelease(null);
     setLocalError(null);
@@ -154,6 +159,8 @@ export default function InstallationsTab({
 
       <ErrorBanner error={error ?? localError} />
 
+      <PublicAgentInstallPanel client={client} workspace={workspace} onInstalled={onPublicInstalled} />
+
       <div className="glass-split-grid grid grid-cols-[minmax(360px,0.85fr)_minmax(520px,1.15fr)] gap-5 min-h-0 flex-1">
         <form onSubmit={handleInstall} className="bg-brand-low border border-brand-outline-variant rounded-xl p-4 h-fit">
           <div className="flex items-center gap-2 mb-4">
@@ -167,7 +174,7 @@ export default function InstallationsTab({
           <div className="flex flex-col gap-1 text-xs text-brand-on-surface-variant mb-3">
             <label htmlFor="installation-agent">Published Agent</label>
             <select id="installation-agent" value={selectedAgentKey} onChange={(event) => handleSelectAgent(event.target.value)} disabled={!workspace || publishedAgents.length === 0 || busyLifecycle} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none disabled:opacity-50">
-              {publishedAgents.length === 0 && <option value="">No published agents returned</option>}
+              <option value="">Select a published Agent</option>
               {publishedAgents.map((agent) => <option key={agentKey(agent)} value={agentKey(agent)}>{agent.name} ({agent.version})</option>)}
             </select>
           </div>
