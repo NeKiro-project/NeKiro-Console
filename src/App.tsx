@@ -26,6 +26,8 @@ export default function App() {
   const [catalogReady, setCatalogReady] = useState(false);
   const [providerCatalogError, setProviderCatalogError] = useState<PlatformErrorView | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const activeWorkspaceRef = useRef<Workspace | null>(null);
+  activeWorkspaceRef.current = workspace;
   const [workspaceDraft, setWorkspaceDraft] = useState(import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID ?? '');
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<PlatformErrorView | null>(null);
@@ -38,11 +40,13 @@ export default function App() {
   const providerCatalogRequestGeneration = useRef(0);
   const workspaceRequestGeneration = useRef(0);
   const installationRequestGeneration = useRef(0);
+  const defaultWorkspaceInitialized = useRef(false);
 
   const providerClient = useMemo(
     () => new NekiroApiClient({
       baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
       token: import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN,
+      publicAgentOrigin: import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN,
     }),
     [],
   );
@@ -50,6 +54,7 @@ export default function App() {
     () => new NekiroApiClient({
       baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
       token: import.meta.env.VITE_NEKIRO_OWNER_TOKEN,
+      publicAgentOrigin: import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN,
     }),
     [],
   );
@@ -66,6 +71,8 @@ export default function App() {
       setCatalogReady(true);
     } catch (error) {
       if (!isCurrentRequest(generation, catalogRequestGeneration.current)) return;
+      setAgents([]);
+      setCatalogReady(false);
       setCatalogError(toPlatformErrorView(error, 'Unable to load the NeKiro Catalog.'));
     } finally {
       if (isCurrentRequest(generation, catalogRequestGeneration.current)) setCatalogLoading(false);
@@ -83,6 +90,7 @@ export default function App() {
       setProviderAgents(response.items.map(mapCatalogEntry).filter((agent) => agent.ownerId === providerId));
     } catch (error) {
       if (!isCurrentRequest(generation, providerCatalogRequestGeneration.current)) return;
+      setProviderAgents([]);
       setProviderCatalogError(toPlatformErrorView(error, 'Unable to load provider-owned Agent Cards.'));
     }
   }, [providerClient]);
@@ -90,6 +98,9 @@ export default function App() {
   const loadWorkspace = useCallback(async (workspaceId: string) => {
     const generation = nextRequestGeneration(workspaceRequestGeneration.current);
     workspaceRequestGeneration.current = generation;
+    installationRequestGeneration.current = nextRequestGeneration(installationRequestGeneration.current);
+    setInstallations([]);
+    setInstallationLoading(false);
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
@@ -124,6 +135,7 @@ export default function App() {
       setInstallations(response.items);
     } catch (error) {
       if (!isCurrentRequest(generation, installationRequestGeneration.current)) return;
+      setInstallations([]);
       setInstallationError(toPlatformErrorView(error, 'Unable to load Workspace Installations.'));
     } finally {
       if (isCurrentRequest(generation, installationRequestGeneration.current)) setInstallationLoading(false);
@@ -139,28 +151,33 @@ export default function App() {
   }, [loadAgents, loadProviderAgents, searchQuery]);
 
   useEffect(() => {
+    if (defaultWorkspaceInitialized.current) return;
     const defaultWorkspaceId = import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID;
-    if (defaultWorkspaceId) {
-      void loadWorkspace(defaultWorkspaceId).then((value) => {
-        if (value) {
-          void loadInstallations(value.workspaceId);
-        }
-      });
-    }
+    if (!defaultWorkspaceId) return;
+    defaultWorkspaceInitialized.current = true;
+    void loadWorkspace(defaultWorkspaceId).then((value) => value && loadInstallations(value.workspaceId));
   }, [loadInstallations, loadWorkspace]);
 
   const handleCreateWorkspace = async () => {
+    const generation = nextRequestGeneration(workspaceRequestGeneration.current);
+    workspaceRequestGeneration.current = generation;
+    installationRequestGeneration.current = nextRequestGeneration(installationRequestGeneration.current);
+    setInstallations([]);
+    setInstallationLoading(false);
     setWorkspaceLoading(true);
     setWorkspaceError(null);
     try {
       const value = await ownerClient.createWorkspace(workspaceDraft);
+      if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return;
       setWorkspace(value);
       setWorkspaceDraft(value.workspaceId);
       await loadInstallations(value.workspaceId);
     } catch (error) {
-      setWorkspaceError(toPlatformErrorView(error, 'Unable to create Workspace.'));
+      if (isCurrentRequest(generation, workspaceRequestGeneration.current)) {
+        setWorkspaceError(toPlatformErrorView(error, 'Unable to create Workspace.'));
+      }
     } finally {
-      setWorkspaceLoading(false);
+      if (isCurrentRequest(generation, workspaceRequestGeneration.current)) setWorkspaceLoading(false);
     }
   };
 
@@ -192,39 +209,72 @@ export default function App() {
     if (!matchesPublishedRelease(release, agent)) {
       throw new NekiroApiError(0, 'The selected Release is not a published match for the selected Agent Card.', 'INVALID_RESPONSE');
     }
-    const installation = await ownerClient.installAgent(workspace.workspaceId, {
+    const operationWorkspaceId = workspace.workspaceId;
+    const installation = await ownerClient.installAgent(operationWorkspaceId, {
       agentId: agent.id,
       versionConstraint: release.agentCardVersion,
       acceptedPermissions,
     });
-    validateTrustedInstallation(installation, release, agent.id);
-    await loadInstallations(workspace.workspaceId);
+    try {
+      validateTrustedInstallation(installation, release, {
+        workspaceId: operationWorkspaceId,
+        agentId: agent.id,
+        versionConstraint: release.agentCardVersion,
+        acceptedPermissions,
+      });
+    } finally {
+      if (activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
+        await loadInstallations(operationWorkspaceId);
+      }
+    }
   };
 
   const handleUpdateInstallation = async (installation: Installation, status: Exclude<InstallationStatus, 'uninstalled'>) => {
-    if (!workspace) {
+    const operationWorkspaceId = workspace?.workspaceId;
+    const operationGeneration = workspaceRequestGeneration.current;
+    const operationInstallationGeneration = installationRequestGeneration.current;
+    if (!operationWorkspaceId) {
       return;
     }
     setInstallationError(null);
     try {
-      await ownerClient.updateInstallation(workspace.workspaceId, installation.installationId, status);
-      await loadInstallations(workspace.workspaceId);
+      await ownerClient.updateInstallation(operationWorkspaceId, installation.installationId, status);
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)
+        && isCurrentRequest(operationInstallationGeneration, installationRequestGeneration.current)
+        && activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
+        await loadInstallations(operationWorkspaceId);
+      }
     } catch (error) {
-      setInstallationError(toPlatformErrorView(error, 'Unable to update Installation.'));
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)
+        && isCurrentRequest(operationInstallationGeneration, installationRequestGeneration.current)) {
+        setInstallations([]);
+        setInstallationError(toPlatformErrorView(error, 'Unable to update Installation.'));
+      }
     }
   };
 
   const handleUninstall = async (installation: Installation) => {
-    if (!workspace) {
+    const operationWorkspaceId = workspace?.workspaceId;
+    const operationGeneration = workspaceRequestGeneration.current;
+    const operationInstallationGeneration = installationRequestGeneration.current;
+    if (!operationWorkspaceId) {
       return false;
     }
     setInstallationError(null);
     try {
-      await ownerClient.uninstallAgent(workspace.workspaceId, installation.installationId);
-      await loadInstallations(workspace.workspaceId);
+      await ownerClient.uninstallAgent(operationWorkspaceId, installation.installationId);
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)
+        && isCurrentRequest(operationInstallationGeneration, installationRequestGeneration.current)
+        && activeWorkspaceRef.current?.workspaceId === operationWorkspaceId) {
+        await loadInstallations(operationWorkspaceId);
+      }
       return true;
     } catch (error) {
-      setInstallationError(toPlatformErrorView(error, 'Unable to uninstall Agent.'));
+      if (isCurrentRequest(operationGeneration, workspaceRequestGeneration.current)
+        && isCurrentRequest(operationInstallationGeneration, installationRequestGeneration.current)) {
+        setInstallations([]);
+        setInstallationError(toPlatformErrorView(error, 'Unable to uninstall Agent.'));
+      }
       return false;
     }
   };
@@ -324,6 +374,7 @@ export default function App() {
                 onUpdateInstallation={handleUpdateInstallation}
                 onUninstall={handleUninstall}
                 onRefresh={() => void loadInstallations()}
+                onPublicInstalled={() => loadInstallations()}
               />
             </motion.div>
           )}
@@ -336,7 +387,7 @@ export default function App() {
 
           {activeTab === 'ledger' && (
             <motion.div key="ledger" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <LedgerTab workspace={workspace} client={ownerClient} />
+              <div key={workspace?.workspaceId ?? 'no-workspace'} className="contents"><LedgerTab workspace={workspace} client={ownerClient} /></div>
             </motion.div>
           )}
         </AnimatePresence>

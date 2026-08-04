@@ -18,7 +18,7 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenSettings, onOpe
   ] as const;
 
   return (
-    <aside 
+    <aside
       id="sidebar"
       className="w-64 h-screen fixed left-0 top-0 bg-brand-lowest border-r border-brand-outline-variant flex flex-col py-5 overflow-y-auto z-50 shadow-lg"
     >

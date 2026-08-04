@@ -1,3 +1,5 @@
+import {satisfies as semverSatisfies, valid as semverValid, validRange as semverValidRange} from 'semver';
+
 import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspace} from '../types';
 
 export type PublicationStatus = 'draft' | 'published' | 'disabled';
@@ -52,6 +54,32 @@ export interface CatalogEntry {
   publicationStatus: PublicationStatus;
   registeredAt: string;
   publishedAt?: string;
+  publicAgentId?: string;
+  publicUrl?: string;
+}
+
+export interface PublicAgentRelease {
+  releaseId: string;
+  agentId: string;
+  name: string;
+  description: string;
+  owner: {id: string; displayName: string};
+  agentCardVersion: string;
+  cardDigest: string;
+  publishedAt: string;
+  authenticationType: AuthenticationType;
+  skills: AgentSkill[];
+  permissions: AgentPermission[];
+  limits: AgentCardV02['limits'];
+}
+
+export interface PublicAgentShare {
+  schemaVersion: '1';
+  publicAgentId: string;
+  publicUrl: string;
+  registeredAt: string;
+  availability: 'installable' | 'not_installable';
+  releases: PublicAgentRelease[];
 }
 
 export interface CatalogSearchResponse {
@@ -159,7 +187,8 @@ export interface AgentRelease {
 export type PlatformErrorCode =
   | 'VALIDATION_ERROR' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT'
   | 'NOT_ACCEPTABLE' | 'PAYLOAD_TOO_LARGE' | 'AGENT_NOT_INSTALLED'
-  | 'INSTALLATION_DISABLED' | 'AGENT_DISABLED' | 'CAPABILITY_NOT_ALLOWED'
+  | 'INSTALLATION_DISABLED' | 'AGENT_DISABLED' | 'AGENT_RELEASE_UNPUBLISHED'
+  | 'AGENT_RELEASE_SUSPENDED' | 'AGENT_RELEASE_REVOKED' | 'CAPABILITY_NOT_ALLOWED'
   | 'ROUTE_NOT_FOUND' | 'AGENT_AUTH_UNSUPPORTED' | 'AGENT_RESPONSE_TOO_LARGE'
   | 'A2A_PROTOCOL_ERROR' | 'AGENT_UNAVAILABLE' | 'AGENT_EXECUTION_FAILED'
   | 'DEPENDENCY_ERROR' | 'TIMEOUT' | 'CANCELED' | 'INTERNAL_ERROR';
@@ -296,7 +325,9 @@ export class NekiroApiError extends Error {
 
 interface NekiroApiClientOptions {
   baseUrl: string;
-  token: string;
+  token?: string;
+  anonymousOnly?: boolean;
+  publicAgentOrigin?: string;
   fetchImpl?: typeof fetch;
 }
 
@@ -304,6 +335,7 @@ export class NekiroApiClient {
   private readonly baseUrl: string;
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly publicAgentOrigin: string;
 
   constructor(options: NekiroApiClientOptions) {
     if (typeof options.baseUrl !== 'string' || options.baseUrl === '' || options.baseUrl !== options.baseUrl.trim()) {
@@ -328,38 +360,45 @@ export class NekiroApiClient {
     }
     this.baseUrl = options.baseUrl.replace(/\/+$/, '');
     const token = options.token;
-    if (typeof token !== 'string' || token === '') {
+    if (!options.anonymousOnly && (typeof token !== 'string' || token === '')) {
       throw new NekiroApiError(0, 'NeKiro development bearer token is required.', 'CONFIGURATION_ERROR');
     }
-    if (token !== token.trim() || /\s/.test(token)) {
+    if (typeof token === 'string' && (token !== token.trim() || /\s/.test(token))) {
       throw new Error('NeKiro bearer token must not contain whitespace');
     }
-    this.token = token;
+    this.token = token ?? '';
+    this.publicAgentOrigin = options.publicAgentOrigin ?? '';
     this.fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
   }
 
   searchAgents(params: CatalogSearchParams = {}): Promise<CatalogSearchResponse> {
     const suffix = this.queryString(params);
-    return this.request<CatalogSearchResponse>('/v3/agents' + suffix);
+    return this.request<unknown>('/v3/agents' + suffix).then((value) => validateCatalogSearchResponse(value, this.publicAgentOrigin));
+  }
+
+  resolvePublicAgent(publicAgentId: string): Promise<PublicAgentShare> {
+    const safePublicAgentID = readPublicAgentID(publicAgentId);
+    return this.publicRequest<unknown>('/v4/public/agents/' + encodeURIComponent(safePublicAgentID))
+      .then((value) => validatePublicAgentShare(value, safePublicAgentID, this.publicAgentOrigin));
   }
 
   registerAgent(card: AgentCardV02): Promise<CatalogEntry> {
-    return this.request<CatalogEntry>('/v3/agents', {
+    return this.request<unknown>('/v3/agents', {
       method: 'POST',
       body: JSON.stringify({card}),
-    });
+    }, 201).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
   }
 
   getAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<CatalogEntry>(this.versionPath(agentId, version));
+    return this.request<unknown>(this.versionPath(agentId, version)).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
   }
 
   publishAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<CatalogEntry>(this.versionPath(agentId, version) + '/publish', {method: 'POST'});
+    return this.request<unknown>(this.versionPath(agentId, version) + '/publish', {method: 'POST'}).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
   }
 
   disableAgentVersion(agentId: string, version: string): Promise<CatalogEntry> {
-    return this.request<CatalogEntry>(this.versionPath(agentId, version) + '/disable', {method: 'POST'});
+    return this.request<unknown>(this.versionPath(agentId, version) + '/disable', {method: 'POST'}).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
   }
 
   createEndpointBinding(providerId: string, agentId: string, request: CreateEndpointBindingRequest): Promise<EndpointBinding> {
@@ -449,25 +488,25 @@ export class NekiroApiClient {
   }
 
   createWorkspace(workspaceId: string): Promise<Workspace> {
-    return this.request<Workspace>('/v3/workspaces', {
+    return this.request<unknown>('/v3/workspaces', {
       method: 'POST',
-      body: JSON.stringify({workspaceId: readText(workspaceId, 'workspaceId')}),
-    });
+      body: JSON.stringify({workspaceId: readIdentifier(workspaceId, 'workspaceId')}),
+    }, 201).then((value) => validateWorkspace(value));
   }
 
   getWorkspace(workspaceId: string): Promise<Workspace> {
-    return this.request<Workspace>('/v3/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')));
+    return this.request<unknown>('/v3/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId'))).then((value) => validateWorkspace(value));
   }
 
   installAgent(workspaceId: string, request: InstallAgentRequest): Promise<Installation> {
     return this.request<unknown>(this.workspaceInstallationPath(workspaceId), {
       method: 'POST',
       body: JSON.stringify({
-        agentId: readText(request.agentId, 'agentId'),
+        agentId: readIdentifier(request.agentId, 'agentId'),
         versionConstraint: readText(request.versionConstraint, 'versionConstraint'),
         acceptedPermissions: request.acceptedPermissions,
       }),
-    }).then((value) => validateInstallation(value, workspaceId));
+    }, 201).then((value) => validateInstallation(value, workspaceId));
   }
 
   listInstallations(workspaceId: string, params: {limit: number; cursor?: string}): Promise<InstallationList> {
@@ -482,15 +521,19 @@ export class NekiroApiClient {
     return this.request<unknown>(this.installationPath(workspaceId, installationId)).then((value) => validateInstallation(value, workspaceId));
   }
 
-  updateInstallation(workspaceId: string, installationId: string, status: Exclude<InstallationStatus, 'uninstalled'>): Promise<Installation> {
-    return this.request<unknown>(this.installationPath(workspaceId, installationId), {
+  async updateInstallation(workspaceId: string, installationId: string, status: Exclude<InstallationStatus, 'uninstalled'>): Promise<Installation> {
+    const previous = await this.getInstallation(workspaceId, installationId);
+    const value = await this.request<unknown>(this.installationPath(workspaceId, installationId), {
       method: 'PATCH',
       body: JSON.stringify({status}),
-    }).then((value) => validateInstallation(value, workspaceId));
+    }).then((response) => validateInstallation(response, workspaceId));
+    return validateInstallationLifecycleResponse(value, previous);
   }
 
-  uninstallAgent(workspaceId: string, installationId: string): Promise<Installation> {
-    return this.request<unknown>(this.installationPath(workspaceId, installationId), {method: 'DELETE'}).then((value) => validateInstallation(value, workspaceId));
+  async uninstallAgent(workspaceId: string, installationId: string): Promise<Installation> {
+    const previous = await this.getInstallation(workspaceId, installationId);
+    const value = await this.request<unknown>(this.installationPath(workspaceId, installationId), {method: 'DELETE'}).then((response) => validateInstallation(response, workspaceId));
+    return validateInstallationLifecycleResponse(value, previous);
   }
 
   invoke(workspaceId: string, request: InvocationRequestV4): Promise<InvocationResultV1> {
@@ -535,13 +578,13 @@ export class NekiroApiClient {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let dataLines: string[] = [];
     let expectedSequence = 0;
     let expectedChunkIndex = 0;
     let terminal = false;
     const events: InvocationResultStreamEventV2[] = [];
-    const consume = (line: string) => {
-      if (!line.startsWith('data: ')) throw new NekiroApiError(response.status, 'NeKiro stream contains an invalid data line.', 'INVALID_RESPONSE');
-      const event = validateResultStreamEvent(parseJsonValue(line.slice(6), 'stream event'));
+    const consume = (data: string) => {
+      const event = validateResultStreamEvent(parseJsonValue(data, 'stream event'));
       if (terminal) throw new NekiroApiError(response.status, 'NeKiro stream emitted an event after terminal state.', 'INVALID_RESPONSE');
       if (event.sequence !== expectedSequence) throw new NekiroApiError(response.status, 'NeKiro stream sequence is not contiguous.', 'INVALID_RESPONSE');
       if ((expectedSequence === 0 && event.type !== 'accepted') || (expectedSequence > 0 && event.type === 'accepted')) throw new NekiroApiError(response.status, 'NeKiro stream accepted event must be first.', 'INVALID_RESPONSE');
@@ -560,6 +603,29 @@ export class NekiroApiClient {
       events.push(event);
       onEvent?.(event);
     };
+    const dispatchEvent = () => {
+      if (dataLines.length === 0) return;
+      const data = dataLines.join('\n');
+      dataLines = [];
+      consume(data);
+    };
+    const consumeLine = (line: string) => {
+      if (line === '') {
+        dispatchEvent();
+        return;
+      }
+      if (line.startsWith(':')) return;
+      const separator = line.indexOf(':');
+      if (separator < 0) throw new NekiroApiError(response.status, 'NeKiro stream contains an invalid field.', 'INVALID_RESPONSE');
+      const field = line.slice(0, separator);
+      let value = line.slice(separator + 1);
+      if (value.startsWith(' ')) value = value.slice(1);
+      if (field === 'data') {
+        dataLines.push(value);
+      } else if (field !== 'event' && field !== 'id' && field !== 'retry') {
+        throw new NekiroApiError(response.status, 'NeKiro stream contains an invalid field.', 'INVALID_RESPONSE');
+      }
+    };
     for (;;) {
       const result = await reader.read();
       buffer += decoder.decode(result.value ?? new Uint8Array(), {stream: !result.done});
@@ -567,12 +633,13 @@ export class NekiroApiClient {
       while (newline >= 0) {
         const line = buffer.slice(0, newline).replace(/\r$/, '');
         buffer = buffer.slice(newline + 1);
-        if (line !== '') consume(line);
+        consumeLine(line);
         newline = buffer.indexOf('\n');
       }
       if (result.done) break;
     }
-    if (buffer.trim() !== '') consume(buffer.trim());
+    if (buffer !== '') consumeLine(buffer.replace(/\r$/, ''));
+    dispatchEvent();
     if (!terminal) throw new NekiroApiError(response.status, 'NeKiro stream ended before a terminal event.', 'INVALID_RESPONSE');
     return events;
   }
@@ -590,19 +657,19 @@ export class NekiroApiClient {
   }
 
   private workspaceInstallationPath(workspaceId: string): string {
-    return '/v3/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/installations';
+    return '/v3/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/installations';
   }
 
   private installationPath(workspaceId: string, installationId: string): string {
-    return this.workspaceInstallationPath(workspaceId) + '/' + encodeURIComponent(readText(installationId, 'installationId'));
+    return this.workspaceInstallationPath(workspaceId) + '/' + encodeURIComponent(readIdentifier(installationId, 'installationId'));
   }
 
   private invocationPath(workspaceId: string): string {
-    return '/v4/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/invocations';
+    return '/v4/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/invocations';
   }
 
   private tracePath(workspaceId: string, traceId: string): string {
-    return '/v4/workspaces/' + encodeURIComponent(readText(workspaceId, 'workspaceId')) + '/traces/' + encodeURIComponent(readIdentifier(traceId, 'traceId'));
+    return '/v4/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/traces/' + encodeURIComponent(readIdentifier(traceId, 'traceId'));
   }
 
   private releaseAction(releaseId: string, action: 'verify' | 'publish' | 'suspend' | 'revoke'): Promise<AgentRelease> {
@@ -625,8 +692,8 @@ export class NekiroApiClient {
     return serialized ? '?' + serialized : '';
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    if (!this.baseUrl) {
+  private async request<T>(path: string, init: RequestInit = {}, expectedStatus = 200): Promise<T> {
+    if (!this.baseUrl || !this.token) {
       throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
     }
 
@@ -645,12 +712,15 @@ export class NekiroApiClient {
       throw await this.errorFromResponse(response, payload);
     }
 
+    if (response.status !== expectedStatus) {
+      throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an unexpected HTTP status.', 'INVALID_RESPONSE');
+    }
     if (response.status === 204) {
       return undefined as T;
     }
-    if (responseText.length === 0) throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an empty success response.', 'INVALID_RESPONSE');
-    if (payload === undefined) {
-      throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned invalid JSON.', 'INVALID_RESPONSE');
+    const mediaType = response.headers.get('content-type')?.split(';', 1)[0].trim();
+    if (responseText.length === 0 || mediaType !== 'application/json' || payload === undefined) {
+      throw new NekiroApiError(response.status, 'NeKiro Control Plane API returned an invalid JSON success response.', 'INVALID_RESPONSE');
     }
     return payload as T;
   }
@@ -677,22 +747,47 @@ export class NekiroApiClient {
   }
 
   private async rawRequest(path: string, init: RequestInit = {}): Promise<Response> {
-    if (!this.baseUrl) throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
+    if (!this.baseUrl || !this.token) throw new NekiroApiError(0, 'NeKiro authenticated API client is not configured.', 'CONFIGURATION_ERROR');
     const headers = new Headers(init.headers);
     headers.set('Accept', headers.get('Accept') ?? 'application/json');
     if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     headers.set('Authorization', 'Bearer ' + this.token);
     try {
-      return await this.fetchImpl(new URL(path, this.baseUrl + '/'), {...init, headers});
-    } catch (error) {
+      return await this.fetchImpl(new URL(path, this.baseUrl + '/'), {...init, headers, redirect: 'error'});
+    } catch {
       throw new NekiroApiError(0, 'NeKiro API request failed.', 'NETWORK_ERROR');
     }
   }
 
+  private async publicRequest<T>(path: string): Promise<T> {
+    if (!this.baseUrl) throw new NekiroApiError(0, 'NeKiro Control Plane API base URL is not configured.', 'CONFIGURATION_ERROR');
+    const headers = new Headers({'Accept': 'application/json'});
+    let response: Response;
+    try {
+      response = await this.fetchImpl(new URL(path, this.baseUrl + '/'), {headers, redirect: 'error'});
+    } catch {
+      throw new NekiroApiError(0, 'NeKiro API request failed.', 'NETWORK_ERROR');
+    }
+    const responseText = await response.text();
+    const payload = parseJson<unknown>(responseText);
+    if (!response.ok) throw await this.errorFromResponse(response, payload);
+    if (response.status !== 200 || response.headers.get('content-type')?.split(';', 1)[0].trim() !== 'application/json' || payload === undefined) {
+      throw new NekiroApiError(response.status, 'NeKiro public Agent response is invalid.', 'INVALID_RESPONSE');
+    }
+    return payload as T;
+  }
+
   private async errorFromResponse(response: Response, knownPayload?: unknown): Promise<NekiroApiError> {
+    if (response.headers.get('content-type')?.split(';', 1)[0].trim() !== 'application/json') {
+      return new NekiroApiError(response.status, 'NeKiro Control Plane API returned an invalid Platform Error payload.', 'INVALID_RESPONSE');
+    }
     const payload = knownPayload ?? parseJson<unknown>(await response.text());
     if (!isPlatformErrorV4(payload)) {
       return new NekiroApiError(response.status, 'NeKiro Control Plane API returned an invalid Platform Error payload.', 'INVALID_RESPONSE');
+    }
+    const headerTraceId = response.headers.get('x-nek-trace-id');
+    if (headerTraceId !== null && (headerTraceId !== payload.traceId || !/^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(headerTraceId))) {
+      return new NekiroApiError(response.status, 'NeKiro Control Plane API returned inconsistent trace correlation.', 'INVALID_RESPONSE');
     }
     const invocationId = 'invocationId' in payload ? payload.invocationId : undefined;
     const rootTaskId = 'rootTaskId' in payload ? payload.rootTaskId : undefined;
@@ -725,6 +820,9 @@ const PLATFORM_ERROR_MESSAGES: Record<PlatformErrorCode, string> = {
   AGENT_NOT_INSTALLED: 'The Agent is not installed in this Workspace.',
   INSTALLATION_DISABLED: 'The Agent installation is disabled.',
   AGENT_DISABLED: 'The Agent version is disabled.',
+  AGENT_RELEASE_UNPUBLISHED: 'The Agent release is not published.',
+  AGENT_RELEASE_SUSPENDED: 'The Agent release is suspended.',
+  AGENT_RELEASE_REVOKED: 'The Agent release is revoked.',
   CAPABILITY_NOT_ALLOWED: 'The requested capability is not allowed.',
   ROUTE_NOT_FOUND: 'No route is available for the Agent.',
   AGENT_AUTH_UNSUPPORTED: 'The Agent authentication type is not supported for invocation.',
@@ -787,6 +885,24 @@ function validateEndpointBinding(value: unknown, expected: {providerId?: string;
   if ('verificationEvidenceDigest' in record) result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
   if ('verifiedAt' in record) result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
   if ('revokedAt' in record) result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+  switch (result.verificationStatus) {
+    case 'pending':
+      rejectPresent(record, ['verificationFailureCode', 'verificationEvidenceDigest', 'verifiedAt', 'revokedAt'], 'pending Endpoint Binding');
+      break;
+    case 'verified':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      rejectPresent(record, ['verificationFailureCode', 'revokedAt'], 'verified Endpoint Binding');
+      break;
+    case 'failed':
+      result.verificationFailureCode = requireBoundedText(record.verificationFailureCode, 'verificationFailureCode', 1, 64);
+      rejectPresent(record, ['verificationEvidenceDigest', 'verifiedAt', 'revokedAt'], 'failed Endpoint Binding');
+      break;
+    case 'revoked':
+      result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+      rejectPresent(record, ['verificationFailureCode', 'verificationEvidenceDigest', 'verifiedAt'], 'revoked Endpoint Binding');
+      break;
+  }
   if (expected.providerId !== undefined && result.providerId !== expected.providerId) throw new Error('Endpoint Binding provider does not match the request');
   if (expected.agentId !== undefined && result.agentId !== expected.agentId) throw new Error('Endpoint Binding Agent does not match the request');
   if (expected.version !== undefined && result.agentCardVersion !== expected.version) throw new Error('Endpoint Binding version does not match the request');
@@ -830,6 +946,34 @@ function validateAgentRelease(value: unknown, expected: {providerId?: string; ag
   if ('publishedAt' in record) result.publishedAt = requireDateValue(record.publishedAt, 'publishedAt');
   if ('suspendedAt' in record) result.suspendedAt = requireDateValue(record.suspendedAt, 'suspendedAt');
   if ('revokedAt' in record) result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+  switch (result.state) {
+    case 'draft':
+    case 'pending_verification':
+      rejectPresent(record, ['verificationEvidenceDigest', 'verifiedAt', 'publishedAt', 'suspendedAt', 'revokedAt'], result.state + ' Agent Release');
+      break;
+    case 'verified':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      rejectPresent(record, ['publishedAt', 'suspendedAt', 'revokedAt'], 'verified Agent Release');
+      break;
+    case 'published':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      result.publishedAt = requireDateValue(record.publishedAt, 'publishedAt');
+      rejectPresent(record, ['suspendedAt', 'revokedAt'], 'published Agent Release');
+      break;
+    case 'suspended':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      result.suspendedAt = requireDateValue(record.suspendedAt, 'suspendedAt');
+      rejectPresent(record, ['revokedAt'], 'suspended Agent Release');
+      break;
+    case 'revoked':
+      result.verificationEvidenceDigest = requireDigest(record.verificationEvidenceDigest, 'verificationEvidenceDigest');
+      result.verifiedAt = requireDateValue(record.verifiedAt, 'verifiedAt');
+      result.revokedAt = requireDateValue(record.revokedAt, 'revokedAt');
+      break;
+  }
   if (expected.providerId !== undefined && result.providerId !== expected.providerId) throw new Error('Agent Release provider does not match the request');
   if (expected.agentId !== undefined && result.agentId !== expected.agentId) throw new Error('Agent Release Agent does not match the request');
   if (expected.version !== undefined && result.agentCardVersion !== expected.version) throw new Error('Agent Release version does not match the request');
@@ -847,6 +991,12 @@ function isTrustedPublicationError(value: unknown): value is TrustedPublicationE
     && value.message.length > 0
     && typeof value.traceId === 'string'
     && /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,127})$/.test(value.traceId);
+}
+
+function rejectPresent(record: Record<string, unknown>, fields: string[], state: string): void {
+  for (const field of fields) {
+    if (field in record) throw new Error(`${field} must be absent for ${state}`);
+  }
 }
 
 function validateInvocationResult(value: unknown): InvocationResultV1 {
@@ -1001,7 +1151,7 @@ function requireUri(value: unknown, field: string): string {
   if (value !== value.trim() || /\s/.test(value)) throw new Error(field + ' must not contain whitespace');
   try {
     const parsed = new URL(value);
-    if (parsed.username || parsed.password) throw new Error('URI userinfo is not allowed');
+    if (parsed.username || parsed.password || hasUriUserinfo(value)) throw new Error('URI userinfo is not allowed');
   } catch {
     throw new Error(field + ' must be a valid URI without userinfo');
   }
@@ -1154,7 +1304,7 @@ export function buildAgentCard(input: AgentCardInput): AgentCardV02 {
   if (!['http:', 'https:'].includes(endpointUrl.protocol)) {
     throw new Error('endpoint must use http or https');
   }
-  if (endpointUrl.username || endpointUrl.password) {
+  if (endpointUrl.username || endpointUrl.password || hasUriUserinfo(endpoint)) {
     throw new Error('endpoint must not contain userinfo credentials');
   }
 
@@ -1191,14 +1341,168 @@ function validateAgentLimits(value: AgentCardV02['limits']): void {
   if (!isRecord(value)) throw new Error('limits must be a JSON object');
   assertAllowedKeys(value, ['timeoutMs', 'maxInputBytes', 'maxOutputBytes', 'streaming'], 'limits');
   if (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 1 || value.timeoutMs > 600000) throw new Error('limits.timeoutMs must be between 1 and 600000');
-  if (!Number.isInteger(value.maxInputBytes) || value.maxInputBytes < 1 || value.maxInputBytes > 2147483647) throw new Error('limits.maxInputBytes must be between 1 and 2147483647');
-  if (!Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1 || value.maxOutputBytes > 2147483647) throw new Error('limits.maxOutputBytes must be between 1 and 2147483647');
+  if (!Number.isInteger(value.maxInputBytes) || value.maxInputBytes < 1) throw new Error('limits.maxInputBytes must be a positive integer');
+  if (!Number.isInteger(value.maxOutputBytes) || value.maxOutputBytes < 1) throw new Error('limits.maxOutputBytes must be a positive integer');
   if (typeof value.streaming !== 'boolean') throw new Error('limits.streaming must be a boolean');
 }
 
 function assertPermissionKeys(value: unknown, index: number): void {
   if (!isRecord(value)) throw new Error('permissions[' + index + '] must be a JSON object');
   assertAllowedKeys(value, ['id', 'description'], 'permissions[' + index + ']');
+}
+
+function validateCatalogEntry(value: unknown, publicAgentOrigin = ''): CatalogEntry {
+  const record = requireRecord(value, 'Catalog entry');
+  assertAllowedKeys(record, ['card', 'publicationStatus', 'registeredAt', 'publishedAt', 'publicAgentId', 'publicUrl'], 'Catalog entry');
+  const result: CatalogEntry = {
+    card: validateCatalogCard(record.card),
+    publicationStatus: requireEnum(record.publicationStatus, ['draft', 'published', 'disabled'], 'publicationStatus') as PublicationStatus,
+    registeredAt: requireDateValue(record.registeredAt, 'registeredAt'),
+  };
+  if ('publishedAt' in record) result.publishedAt = requireDateValue(record.publishedAt, 'publishedAt');
+  if (('publicAgentId' in record) !== ('publicUrl' in record)) throw new Error('Catalog public identity fields must be paired');
+  if ('publicAgentId' in record) {
+    result.publicAgentId = readPublicAgentID(record.publicAgentId);
+    result.publicUrl = requirePublicAgentURL(record.publicUrl, result.publicAgentId, publicAgentOrigin);
+  }
+  return result;
+}
+
+function validatePublicAgentShare(value: unknown, expectedPublicAgentID: string, publicAgentOrigin: string): PublicAgentShare {
+  const record = requireRecord(value, 'Public Agent share');
+  assertAllowedKeys(record, ['schemaVersion', 'publicAgentId', 'publicUrl', 'registeredAt', 'availability', 'releases'], 'Public Agent share');
+  const publicAgentID = readPublicAgentID(record.publicAgentId);
+  if (publicAgentID !== expectedPublicAgentID) throw new Error('Public Agent identity changed');
+  const releases = readRecordArray(record.releases, 'releases').map((release, index) => validatePublicAgentRelease(release, index));
+  const availability = requireEnum(record.availability, ['installable', 'not_installable'], 'availability') as PublicAgentShare['availability'];
+  if ((availability === 'installable') !== (releases.length > 0)) throw new Error('Public Agent availability does not match Releases');
+  return {
+    schemaVersion: record.schemaVersion === '1' ? '1' : (() => { throw new Error('Public Agent share schemaVersion is invalid'); })(),
+    publicAgentId: publicAgentID,
+    publicUrl: requirePublicAgentURL(record.publicUrl, publicAgentID, publicAgentOrigin),
+    registeredAt: requireDateValue(record.registeredAt, 'registeredAt'),
+    availability,
+    releases,
+  };
+}
+
+function validatePublicAgentRelease(value: Record<string, unknown>, index: number): PublicAgentRelease {
+  const field = `releases[${index}]`;
+  assertAllowedKeys(value, ['releaseId', 'agentId', 'name', 'description', 'owner', 'agentCardVersion', 'cardDigest', 'publishedAt', 'authenticationType', 'skills', 'permissions', 'limits'], field);
+  const owner = requireRecord(value.owner, `${field}.owner`);
+  assertAllowedKeys(owner, ['id', 'displayName'], `${field}.owner`);
+  const skills = readRecordArray(value.skills, `${field}.skills`).map((skill, skillIndex) => {
+    const skillField = `${field}.skills[${skillIndex}]`;
+    assertAllowedKeys(skill, ['id', 'name', 'description', 'inputSchema', 'outputSchema', 'requiredPermissions'], skillField);
+    return {
+      id: readIdentifier(skill.id, `${skillField}.id`),
+      name: readText(skill.name, `${skillField}.name`, 120),
+      description: readText(skill.description, `${skillField}.description`, 2000),
+      inputSchema: requireRecord(skill.inputSchema, `${skillField}.inputSchema`),
+      outputSchema: requireRecord(skill.outputSchema, `${skillField}.outputSchema`),
+      requiredPermissions: readStringArray(skill.requiredPermissions, `${skillField}.requiredPermissions`),
+    };
+  });
+  const permissions = readRecordArray(value.permissions, `${field}.permissions`).map((permission, permissionIndex) => {
+    assertPermissionKeys(permission, permissionIndex);
+    return {id: readIdentifier(permission.id, `${field}.permissions[${permissionIndex}].id`), description: readText(permission.description, `${field}.permissions[${permissionIndex}].description`, 1000)};
+  });
+  validateAgentLimits(value.limits as AgentCardV02['limits']);
+  return {
+    releaseId: readIdentifier(value.releaseId, `${field}.releaseId`),
+    agentId: readIdentifier(value.agentId, `${field}.agentId`),
+    name: readText(value.name, `${field}.name`, 120),
+    description: readText(value.description, `${field}.description`, 4000),
+    owner: {id: readIdentifier(owner.id, `${field}.owner.id`), displayName: readText(owner.displayName, `${field}.owner.displayName`, 120)},
+    agentCardVersion: requireSemver(value.agentCardVersion, `${field}.agentCardVersion`),
+    cardDigest: requireDigest(value.cardDigest, `${field}.cardDigest`),
+    publishedAt: requireDateValue(value.publishedAt, `${field}.publishedAt`),
+    authenticationType: requireEnum(value.authenticationType, ['none', 'api_key', 'http_bearer', 'oauth2_client_credentials', 'mutual_tls'], `${field}.authenticationType`) as AuthenticationType,
+    skills,
+    permissions,
+    limits: value.limits as AgentCardV02['limits'],
+  };
+}
+
+function validateCatalogSearchResponse(value: unknown, publicAgentOrigin = ''): CatalogSearchResponse {
+  const record = requireRecord(value, 'Catalog search response');
+  assertAllowedKeys(record, ['items', 'nextCursor'], 'Catalog search response');
+  if (!Array.isArray(record.items)) throw new Error('Catalog search items must be an array');
+  const result: CatalogSearchResponse = {items: record.items.map((item) => validateCatalogEntry(item, publicAgentOrigin))};
+  if ('nextCursor' in record) result.nextCursor = readText(record.nextCursor, 'nextCursor');
+  return result;
+}
+
+function validateCatalogCard(value: unknown): AgentCardV02 {
+  const record = requireRecord(value, 'Agent Card');
+  assertAllowedKeys(record, ['schemaVersion', 'agentId', 'name', 'description', 'owner', 'version', 'protocol', 'skills', 'authentication', 'permissions', 'limits'], 'Agent Card');
+  if (record.schemaVersion !== '0.2') throw new Error('Agent Card schemaVersion is invalid');
+  const owner = requireRecord(record.owner, 'Agent Card owner');
+  assertAllowedKeys(owner, ['id', 'displayName'], 'Agent Card owner');
+  const protocol = requireRecord(record.protocol, 'Agent Card protocol');
+  assertAllowedKeys(protocol, ['type', 'version', 'transport', 'endpoint'], 'Agent Card protocol');
+  if (protocol.type !== 'a2a' || protocol.version !== '0.3.0' || protocol.transport !== 'JSONRPC') throw new Error('Agent Card protocol is invalid');
+  const authentication = requireRecord(record.authentication, 'Agent Card authentication');
+  assertAllowedKeys(authentication, ['type'], 'Agent Card authentication');
+  const permissions = readRecordArray(record.permissions, 'permissions').map((permission, index) => {
+    assertPermissionKeys(permission, index);
+    return {id: readIdentifier(permission.id, `permissions[${index}].id`), description: readText(permission.description, `permissions[${index}].description`, 1000)};
+  });
+  ensureUnique(permissions.map((permission) => permission.id), 'permission id');
+  const declaredPermissions = new Set(permissions.map((permission) => permission.id));
+  const skillRecords = readRecordArray(record.skills, 'skills');
+  if (skillRecords.length === 0) throw new Error('skills must contain at least one skill');
+  const skillIds = new Set<string>();
+  const skills = skillRecords.map((skill, index) => {
+    assertAllowedKeys(skill, ['id', 'name', 'description', 'inputSchema', 'outputSchema', 'requiredPermissions'], `skills[${index}]`);
+    const id = readIdentifier(skill.id, `skills[${index}].id`);
+    if (skillIds.has(id)) throw new Error('duplicate skill id: ' + id);
+    skillIds.add(id);
+    const requiredPermissions = readStringArray(skill.requiredPermissions, `skills[${index}].requiredPermissions`);
+    for (const permissionId of requiredPermissions) {
+      if (!declaredPermissions.has(permissionId)) {
+        throw new Error('required permission is not declared in permissions: ' + permissionId);
+      }
+    }
+    return {
+      id,
+      name: readText(skill.name, `skills[${index}].name`, 120),
+      description: readText(skill.description, `skills[${index}].description`, 2000),
+      inputSchema: requireRecord(skill.inputSchema, `skills[${index}].inputSchema`),
+      outputSchema: requireRecord(skill.outputSchema, `skills[${index}].outputSchema`),
+      requiredPermissions,
+    };
+  });
+  validateAgentLimits(record.limits as AgentCardV02['limits']);
+  return {
+    schemaVersion: '0.2',
+    agentId: readIdentifier(record.agentId, 'agentId'),
+    name: readText(record.name, 'name', 120),
+    description: readText(record.description, 'description', 4000),
+    owner: {id: readIdentifier(owner.id, 'owner.id'), displayName: readText(owner.displayName, 'owner.displayName', 120)},
+    version: requireSemver(record.version, 'version'),
+    protocol: {type: 'a2a', version: '0.3.0', transport: 'JSONRPC', endpoint: requireHttpUri(readText(protocol.endpoint, 'protocol.endpoint', 2048), 'protocol.endpoint')},
+    skills,
+    authentication: {type: requireEnum(authentication.type, ['none', 'api_key', 'http_bearer', 'oauth2_client_credentials', 'mutual_tls'], 'authentication.type') as AuthenticationType},
+    permissions,
+    limits: record.limits as AgentCardV02['limits'],
+  };
+}
+
+function validateWorkspace(value: unknown): Workspace {
+  const record = requireRecord(value, 'Workspace');
+  assertAllowedKeys(record, ['workspaceId', 'ownerId', 'createdAt', 'updatedAt'], 'Workspace');
+  return {
+    workspaceId: readIdentifier(record.workspaceId, 'workspaceId'),
+    ownerId: readIdentifier(record.ownerId, 'ownerId'),
+    createdAt: requireDateValue(record.createdAt, 'createdAt'),
+    updatedAt: requireDateValue(record.updatedAt, 'updatedAt'),
+  };
+}
+
+function readRecordArray(value: unknown, field: string): Record<string, unknown>[] {
+  if (!Array.isArray(value) || !value.every((item) => isRecord(item))) throw new Error(field + ' must be an array of JSON objects');
+  return value;
 }
 
 export function mapCatalogEntry(entry: CatalogEntry): Agent {
@@ -1215,6 +1519,8 @@ export function mapCatalogEntry(entry: CatalogEntry): Agent {
     permissions: entry.card.permissions,
     registeredAt: entry.registeredAt,
     publishedAt: entry.publishedAt,
+    publicAgentId: entry.publicAgentId,
+    publicUrl: entry.publicUrl,
   };
 }
 
@@ -1235,7 +1541,7 @@ function validateInstallation(value: unknown, workspaceId: string): Installation
   const versionConstraint = readText(record.versionConstraint, 'versionConstraint');
   const installedVersion = requireSemver(record.installedVersion, 'installedVersion');
   if (!satisfiesSemverRange(installedVersion, versionConstraint)) throw new Error('installedVersion does not satisfy versionConstraint');
-  const acceptedPermissions = readStringArray(record.acceptedPermissions, 'acceptedPermissions');
+  const acceptedPermissions = readStringArray(record.acceptedPermissions, 'acceptedPermissions').map((permission, index) => readIdentifier(permission, `acceptedPermissions[${index}]`));
   if ([...acceptedPermissions].sort().join('\u0000') !== acceptedPermissions.join('\u0000')) throw new Error('acceptedPermissions must be sorted');
   const status = requireEnum(record.status, ['enabled', 'disabled', 'uninstalled'], 'Installation status') as InstallationStatus;
   const installedAt = requireDateValue(record.installedAt, 'installedAt');
@@ -1264,6 +1570,21 @@ function validateInstallation(value: unknown, workspaceId: string): Installation
   return result;
 }
 
+function validateInstallationLifecycleResponse(value: Installation, previous: Installation): Installation {
+  const samePermissions = value.acceptedPermissions.length === previous.acceptedPermissions.length
+    && value.acceptedPermissions.every((permission, index) => permission === previous.acceptedPermissions[index]);
+  if (value.installationId !== previous.installationId
+    || value.workspaceId !== previous.workspaceId
+    || value.agentId !== previous.agentId
+    || value.versionConstraint !== previous.versionConstraint
+    || value.installedVersion !== previous.installedVersion
+    || !samePermissions
+    || value.installedReleaseId !== previous.installedReleaseId) {
+    throw new NekiroApiError(200, 'NeKiro Installation lifecycle response changed immutable pin fields.', 'INVALID_RESPONSE');
+  }
+  return value;
+}
+
 function validateInstallationList(value: unknown, workspaceId: string): InstallationList {
   const record = requireRecord(value, 'Installation list');
   assertAllowedKeys(record, ['items', 'nextCursor'], 'Installation list');
@@ -1275,20 +1596,48 @@ function validateInstallationList(value: unknown, workspaceId: string): Installa
   return result;
 }
 
-export function toPlatformErrorView(error: unknown, _fallbackMessage: string): PlatformErrorView {
+export function toPlatformErrorView(error: unknown, fallbackMessage: string): PlatformErrorView {
   if (error instanceof NekiroApiError) {
     return error.toView();
   }
   return {
     status: 0,
     code: 'CLIENT_ERROR',
-    message: error instanceof Error ? error.message : String(error),
+    message: fallbackMessage,
   };
 }
 
-export function validateTrustedInstallation(value: Installation, release: AgentRelease, agentId: string): Installation {
-  if (value.agentId !== agentId || value.installedVersion !== release.agentCardVersion || value.installedReleaseId !== release.releaseId || value.status !== 'enabled') {
+export function validateTrustedInstallation(value: Installation, release: AgentRelease, expected: {
+  workspaceId: string;
+  agentId: string;
+  versionConstraint: string;
+  acceptedPermissions: string[];
+}): Installation {
+  const samePermissions = value.acceptedPermissions.length === expected.acceptedPermissions.length
+    && value.acceptedPermissions.every((permission, index) => permission === expected.acceptedPermissions[index]);
+  if (value.workspaceId !== expected.workspaceId
+    || value.agentId !== expected.agentId
+    || value.versionConstraint !== expected.versionConstraint
+    || value.installedVersion !== release.agentCardVersion
+    || value.installedReleaseId !== release.releaseId
+    || !samePermissions
+    || value.status !== 'enabled') {
     throw new NekiroApiError(200, 'NeKiro Installation did not preserve the preflight Release identity.', 'INVALID_RESPONSE');
+  }
+  return value;
+}
+
+export function validatePublicInstallation(value: Installation, release: PublicAgentRelease, workspaceId: string, acceptedPermissions: string[]): Installation {
+  const samePermissions = value.acceptedPermissions.length === acceptedPermissions.length
+    && value.acceptedPermissions.every((permission, index) => permission === acceptedPermissions[index]);
+  if (value.workspaceId !== workspaceId
+    || value.agentId !== release.agentId
+    || value.versionConstraint !== release.agentCardVersion
+    || value.installedVersion !== release.agentCardVersion
+    || value.installedReleaseId !== release.releaseId
+    || !samePermissions
+    || value.status !== 'enabled') {
+    throw new NekiroApiError(200, 'NeKiro Installation did not preserve the selected public Release identity.', 'INVALID_RESPONSE');
   }
   return value;
 }
@@ -1324,89 +1673,222 @@ function readIdentifier(value: unknown, field: string): string {
   return text;
 }
 
+function readPublicAgentID(value: unknown): string {
+  const text = readText(value, 'publicAgentId');
+  if (!/^agt_[0-9a-f]{32}$/.test(text)) throw new Error('publicAgentId must be an exact public Agent identifier');
+  return text;
+}
+
+function requirePublicAgentURL(value: unknown, publicAgentID: string, origin: string): string {
+  const text = readText(value, 'publicUrl', 2048);
+  if (typeof origin !== 'string' || origin === '' || origin !== origin.trim()) throw new Error('VITE_NEKIRO_PUBLIC_AGENT_ORIGIN is required');
+  const expected = origin + '/a/' + publicAgentID;
+  if (text !== expected) throw new Error('publicUrl is not the canonical configured public Agent URL');
+  return text;
+}
+
 function isIpHostname(hostname: string): boolean {
   return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) || hostname.includes(':');
 }
 
-interface SemverParts {
-  major: number;
-  minor: number;
-  patch: number;
-  prerelease: string[];
+function hasUriUserinfo(value: string): boolean {
+  const authority = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/([^/?#]*)/.exec(value)?.[1];
+  return authority?.includes('@') ?? false;
 }
 
 function satisfiesSemverRange(version: string, range: string): boolean {
-  const parsedVersion = parseSemver(version);
-  if (!parsedVersion) return false;
-  return range.split('||').some((branch) => satisfiesSemverBranch(parsedVersion, branch));
+  // Masterminds/semver accepts backend aliases and partial prerelease tokens;
+  // keep those syntax adapters narrow and delegate comparison semantics to the
+  // maintained npm parser, which rejects non-canonical numeric components.
+  const normalizedNumbers = normalizeLargeSemverNumbers(version, range);
+  if (!normalizedNumbers || semverValid(normalizedNumbers.version) === null) return false;
+  version = normalizedNumbers.version;
+  range = normalizedNumbers.range;
+  if (range.length > 512) return false;
+  const branches = range.split('||');
+  if (branches.length > 32) return false;
+  const parsedBranches = branches.map((branch) => parseSemverBranch(branch));
+  if (parsedBranches.some((branch) => branch === undefined)) return false;
+  return parsedBranches.some((branch) => branch !== undefined && satisfiesSemverBranch(version, branch));
 }
 
-function satisfiesSemverBranch(version: SemverParts, branch: string): boolean {
-  const tokens = branch.trim().split(/[\s,]+/).filter(Boolean);
-  if (tokens.length === 0) return false;
-  return tokens.every((token) => satisfiesSemverToken(version, token));
+const MAX_UINT64 = 18446744073709551615n;
+const MAX_SAFE_INTEGER_BIGINT = BigInt(Number.MAX_SAFE_INTEGER);
+
+interface SemverTokenParts {
+  prefix: string;
+  major: string;
+  minor?: string;
+  patch?: string;
+  prerelease?: string;
+  build?: string;
 }
 
-function satisfiesSemverToken(version: SemverParts, token: string): boolean {
-  if (token === '*' || token.toLowerCase() === 'x') return true;
-  const wildcard = /^(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?$/.exec(token);
-  if (wildcard) {
-    if (wildcard[1] === 'x' || wildcard[1] === 'X' || wildcard[1] === '*') return true;
-    if (version.major !== Number(wildcard[1])) return false;
-    if (wildcard[2] === undefined || ['x', 'X', '*'].includes(wildcard[2])) return true;
-    if (version.minor !== Number(wildcard[2])) return false;
-    return wildcard[3] === undefined || ['x', 'X', '*'].includes(wildcard[3]) || version.patch === Number(wildcard[3]);
+interface SemverNumericMaps {
+  core: [Map<string, string>, Map<string, string>, Map<string, string>];
+  prerelease: Map<number, Map<string, string>>;
+}
+
+function normalizeLargeSemverNumbers(version: string, range: string): {version: string; range: string} | undefined {
+  const normalizedRange = range.replace(/=>/g, '>=').replace(/=</g, '<=').replace(/~>/g, '~');
+  const maps: SemverNumericMaps = {core: [new Map(), new Map(), new Map()], prerelease: new Map()};
+  if (!collectSemverTokenNumbers(version, maps) || !collectSemverTokenNumbers(normalizedRange, maps)) return undefined;
+  maps.core.forEach((map) => map.set('0', '0'));
+  const needsCoreMapping = maps.core.map((map) => finalizeSemverNumberMap(map)).some(Boolean);
+  const needsPrereleaseMapping = [...maps.prerelease.values()].map((map) => finalizeSemverNumberMap(map)).some(Boolean);
+  const needsMapping = needsCoreMapping || needsPrereleaseMapping;
+  if (!needsMapping) return {version, range};
+  return {
+    version: replaceLargeSemverTokenNumbers(version, maps),
+    range: replaceLargeSemverTokenNumbers(normalizePartialPrerelease(normalizedRange), maps),
+  };
+}
+
+function collectSemverTokenNumbers(value: string, maps: SemverNumericMaps): boolean {
+  const tokenPattern = /(^|[\s,|])((?:>=|<=|!=|=>|=<|>|<|=|~>|~|\^)?)(v?(?:\d+|[xX*])(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=$|[\s,|])/g;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(value)) !== null) {
+    const token = parseSemverTokenParts(match[3]);
+    if (!token) continue;
+    for (const [index, component] of [token.major, token.minor, token.patch].entries()) {
+      if (component === undefined || isSemverWildcard(component)) continue;
+      if (!recordSemverNumber(component, maps.core[index])) return false;
+    }
+    if (token.prerelease) {
+      for (const [index, identifier] of token.prerelease.split('.').entries()) {
+        if (/^0\d/.test(identifier)) return false;
+        if (/^\d+$/.test(identifier) && !recordSemverNumber(identifier, getPrereleaseMap(maps, index))) return false;
+      }
+    }
   }
-  const operatorMatch = /^(\^|~|>=|<=|>|<|=)?(.+)$/.exec(token);
-  if (!operatorMatch) return false;
-  const operator = operatorMatch[1] ?? '=';
-  const base = parseSemver(operatorMatch[2]);
-  if (!base) return false;
-  const comparison = compareSemver(version, base);
-  if (operator === '=') return comparison === 0;
-  if (operator === '>') return comparison > 0;
-  if (operator === '>=') return comparison >= 0;
-  if (operator === '<') return comparison < 0;
-  if (operator === '<=') return comparison <= 0;
-  if (operator === '^') {
-    const upper = base.major > 0
-      ? {major: base.major + 1, minor: 0, patch: 0, prerelease: []}
-      : base.minor > 0
-        ? {major: 0, minor: base.minor + 1, patch: 0, prerelease: []}
-        : {major: 0, minor: 0, patch: base.patch + 1, prerelease: []};
-    return compareSemver(version, base) >= 0 && compareSemver(version, upper) < 0;
-  }
-  const upper = {major: base.major, minor: base.minor + 1, patch: 0, prerelease: []};
-  return compareSemver(version, base) >= 0 && compareSemver(version, upper) < 0;
+  return true;
 }
 
-function parseSemver(value: string): SemverParts | undefined {
-  if (!isSemver(value)) return undefined;
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(value);
+function recordSemverNumber(value: string, map: Map<string, string>): boolean {
+  if (/^0\d/.test(value)) return false;
+  try {
+    const numeric = BigInt(value);
+    if (numeric > MAX_UINT64) return false;
+  } catch {
+    return false;
+  }
+  map.set(value, value);
+  return true;
+}
+
+function finalizeSemverNumberMap(map: Map<string, string>): boolean {
+  const values = [...map.keys()];
+  const needsMapping = values.some((value) => BigInt(value) >= MAX_SAFE_INTEGER_BIGINT);
+  if (!needsMapping) return false;
+  values.sort((left, right) => (BigInt(left) < BigInt(right) ? -1 : BigInt(left) > BigInt(right) ? 1 : 0));
+  values.forEach((value, index) => map.set(value, String(index)));
+  return true;
+}
+
+function replaceLargeSemverTokenNumbers(value: string, maps: SemverNumericMaps): string {
+  const tokenPattern = /(^|[\s,|])((?:>=|<=|!=|=>|=<|>|<|=|~>|~|\^)?)(v?(?:\d+|[xX*])(?:\.(?:\d+|[xX*]))?(?:\.(?:\d+|[xX*]))?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=$|[\s,|])/g;
+  return value.replace(tokenPattern, (_match, prefix: string, operator: string, tokenValue: string) => prefix + operator + renderSemverToken(tokenValue, maps));
+}
+
+function renderSemverToken(value: string, maps: SemverNumericMaps): string {
+  const token = parseSemverTokenParts(value);
+  if (!token) return value;
+  const core = [token.major, token.minor, token.patch].map((component, index) => component === undefined || isSemverWildcard(component) ? component : maps.core[index].get(component) ?? component);
+  const prerelease = token.prerelease?.split('.').map((identifier, index) => /^\d+$/.test(identifier) ? getPrereleaseMap(maps, index).get(identifier) ?? identifier : identifier).join('.');
+  return token.prefix + core[0] + (core[1] === undefined ? '' : '.' + core[1]) + (core[2] === undefined ? '' : '.' + core[2]) + (prerelease === undefined ? '' : '-' + prerelease) + (token.build === undefined ? '' : '+' + token.build);
+}
+
+function parseSemverTokenParts(value: string): SemverTokenParts | undefined {
+  const match = /^(v?)(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/.exec(value);
   if (!match) return undefined;
-  return {major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]), prerelease: match[4]?.split('.') ?? []};
+  return {prefix: match[1], major: match[2], minor: match[3], patch: match[4], prerelease: match[5], build: match[6]};
 }
 
-function compareSemver(left: SemverParts, right: SemverParts): number {
-  for (const field of ['major', 'minor', 'patch'] as const) {
-    if (left[field] !== right[field]) return left[field] > right[field] ? 1 : -1;
+function getPrereleaseMap(maps: SemverNumericMaps, index: number): Map<string, string> {
+  const existing = maps.prerelease.get(index);
+  if (existing) return existing;
+  const created = new Map<string, string>();
+  maps.prerelease.set(index, created);
+  return created;
+}
+
+interface SemverRangeBranch {
+  baseRange: string;
+  exclusions: string[];
+}
+
+function satisfiesSemverBranch(version: string, branch: SemverRangeBranch): boolean {
+  if (!semverSatisfies(version, branch.baseRange)) return false;
+  return branch.exclusions.every((exclusion) => !semverSatisfies(version, exclusion));
+}
+
+function parseSemverBranch(branch: string): SemverRangeBranch | undefined {
+  const normalized = normalizeSemverRangeSyntax(branch);
+  if (!normalized || normalized.split(',').some((part) => part.trim() === '')) return undefined;
+  const rawTokens = normalized.split(/[\s,]+/).filter(Boolean);
+  if (rawTokens.length === 0) return undefined;
+  const baseTokens: string[] = [];
+  const exclusions: string[] = [];
+  for (let index = 0; index < rawTokens.length; index += 1) {
+    let token = rawTokens[index];
+    if (token === '!=') {
+      token = rawTokens[++index] ?? '';
+      if (!token) return undefined;
+      const exclusion = semverExclusionRange(token);
+      if (!exclusion) return undefined;
+      exclusions.push(exclusion.range);
+      continue;
+    }
+    if (token.startsWith('!=')) {
+      const exclusion = semverExclusionRange(token.slice(2));
+      if (!exclusion) return undefined;
+      exclusions.push(exclusion.range);
+      continue;
+    }
+    baseTokens.push(token);
   }
-  if (left.prerelease.length === 0 && right.prerelease.length === 0) return 0;
-  if (left.prerelease.length === 0) return 1;
-  if (right.prerelease.length === 0) return -1;
-  for (let index = 0; index < Math.max(left.prerelease.length, right.prerelease.length); index += 1) {
-    const leftPart = left.prerelease[index];
-    const rightPart = right.prerelease[index];
-    if (leftPart === undefined) return -1;
-    if (rightPart === undefined) return 1;
-    if (leftPart === rightPart) continue;
-    const leftNumber = /^\d+$/.test(leftPart);
-    const rightNumber = /^\d+$/.test(rightPart);
-    if (leftNumber && rightNumber) return Number(leftPart) > Number(rightPart) ? 1 : -1;
-    if (leftNumber !== rightNumber) return leftNumber ? -1 : 1;
-    return leftPart > rightPart ? 1 : -1;
-  }
-  return 0;
+  const baseRange = semverValidRange(normalizePartialPrerelease(baseTokens.join(' ') || '*'), {loose: false});
+  if (baseRange === null) return undefined;
+  return {baseRange, exclusions};
+}
+
+function normalizeSemverRangeSyntax(value: string): string | undefined {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.replace(/=>/g, '>=').replace(/=</g, '<=').replace(/~>/g, '~');
+}
+
+interface SemverExclusion {
+  range: string;
+}
+
+function semverExclusionRange(value: string): SemverExclusion | undefined {
+  const normalized = normalizePartialPrerelease(value);
+  const match = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(normalized);
+  if (!match || semverValidRange(normalized, {loose: false}) === null) return undefined;
+  const majorWildcard = isSemverWildcard(match[1]);
+  const minorWildcard = match[2] === undefined || isSemverWildcard(match[2]);
+  const patchWildcard = match[3] === undefined || isSemverWildcard(match[3]);
+  if (majorWildcard) return {range: '*'};
+  const major = Number(match[1]);
+  const minor = minorWildcard ? 0 : Number(match[2]);
+  const patch = patchWildcard ? 0 : Number(match[3]);
+  const range = minorWildcard
+      ? `>=${major}.0.0 <${major + 1}.0.0`
+      : patchWildcard
+        ? `>=${major}.${minor}.0 <${major}.${minor + 1}.0`
+      : normalized;
+  return {range};
+}
+
+function normalizePartialPrerelease(value: string): string {
+  return value.replace(/(^|[\s,])((?:>=|<=|!=|=>|=<|>|<|=|~>|~|\^)?)(v?)(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)(?=$|[\s,])/g, (_match, prefix: string, operator: string, versionPrefix: string, major: string, minor: string | undefined, patch: string | undefined, prerelease: string) => {
+    return prefix + operator + versionPrefix + major + '.' + (minor ?? '0') + '.' + (patch ?? '0') + prerelease;
+  });
+}
+
+function isSemverWildcard(value: string | undefined): boolean {
+  return value === undefined || value === 'x' || value === 'X' || value === '*';
 }
 
 function readStringArray(value: unknown, field: string): string[] {
