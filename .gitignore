@@ -8,3 +8,6 @@ coverage/
 !.env.example
 test-results/
 playwright-report/
+.repowiki-site/
+site/
+scripts/__pycache__/

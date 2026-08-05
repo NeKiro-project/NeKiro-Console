@@ -47,6 +47,12 @@ acceptance is owned by
 an exact Console commit and invokes the retained Playwright suite against its
 immutable component manifest.
 
+## RepoWiki
+
+The [NeKiro Console RepoWiki](https://nekiro-project.github.io/NeKiro-Console/)
+publishes the Console documentation in English and Chinese with MkDocs Material.
+The committed `.qoder/repowiki` documents remain canonical.
+
 ## Related repositories
 
 - [NeKiro core](https://github.com/NeKiro-project/NeKiro)
