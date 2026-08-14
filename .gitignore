@@ -11,6 +11,9 @@ coverage/
 test-results/
 playwright-report/
 blob-report/
+.repowiki-site/
+site/
+scripts/__pycache__/
 
 # Local configuration and logs
 .env

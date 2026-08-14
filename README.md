@@ -72,6 +72,14 @@ commands run, and their success signals. Contract or route changes must also
 identify the Core revision and the NeKiro-Stack manifest update that will
 verify the production browser path.
 
+## RepoWiki
+
+The [NeKiro Console RepoWiki](https://nekiro-project.github.io/NeKiro-Console/)
+uses English and Chinese navigation for Console-owned documentation rendered
+with MkDocs Material. Detailed RepoWiki exports currently retain their
+canonical source language; the committed `.qoder/repowiki` documents remain
+the source of truth.
+
 ## Related repositories
 
 - [NeKiro core](https://github.com/NeKiro-project/NeKiro)
