@@ -29,6 +29,15 @@ def source_url(source: str) -> str:
     return SOURCE_URL_PREFIX + urllib.parse.quote(source, safe="/")
 
 
+def validated_output_path(output: Path) -> Path:
+    requested = output if output.is_absolute() else REPO_ROOT / output
+    resolved = requested.resolve()
+    allowed = REPO_ROOT.resolve() / DEFAULT_OUTPUT.name
+    if resolved != allowed:
+        fail(f"--output must resolve to the generated RepoWiki directory: {allowed}")
+    return resolved
+
+
 def documents() -> list[tuple[str, str]]:
     result: list[tuple[str, str]] = [("README.md", "console-docs/readme-page.md")]
     roots = (
@@ -76,7 +85,10 @@ def rewrite_links(
             resolved = posixpath.normpath(
                 posixpath.join(posixpath.dirname(source_posix), link_target)
             )
-        if resolved in source_map:
+        is_source_line_fragment = is_file_uri and bool(
+            re.fullmatch(r"#L\d+(?:-L\d+)?", fragment)
+        )
+        if resolved in source_map and not is_source_line_fragment:
             mirrored = source_map[resolved]
             relative = posixpath.relpath(mirrored, posixpath.dirname(target))
             link = urllib.parse.quote(relative, safe="/")
@@ -103,7 +115,7 @@ def source_page(
         note = (
             '<div class="source-note">Canonical source: '
             f'<a href="{source_url(source)}"><code>{source}</code></a>. '
-            "This page is rendered from the Console-owned RepoWiki document during the MkDocs build.</div>"
+            "This page is rendered from the Console-owned RepoWiki document and retains its canonical source language.</div>"
         )
     text = (REPO_ROOT / source).read_text(encoding="utf-8")
     return f"{note}\n\n{rewrite_links(source, target, text, source_map)}"
@@ -212,7 +224,7 @@ def main() -> int:
         if args.check:
             print(f"RepoWiki check passed: {len(entries)} Console documents, 2 locales")
         else:
-            output = args.output if args.output.is_absolute() else REPO_ROOT / args.output
+            output = validated_output_path(args.output)
             build(output, entries)
             print(f"MkDocs source generated: {output}")
     except ValueError as error:

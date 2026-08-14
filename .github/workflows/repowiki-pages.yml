@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: repowiki-pages
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -47,8 +47,14 @@ jobs:
           python scripts/build_repowiki.py --check
           python scripts/build_repowiki.py --output .repowiki-site
           python -m py_compile scripts/build_repowiki.py
+          python -m unittest scripts/test_build_repowiki.py
       - run: |
-          mkdocs build --strict --verbose --site-dir .mkdocs-check -f mkdocs.yml
+          set -o pipefail
+          mkdocs build --strict --verbose --site-dir .mkdocs-check -f mkdocs.yml 2>&1 | tee .mkdocs-build.log
+          if grep -F "there is no such anchor" .mkdocs-build.log; then
+            echo "RepoWiki contains a broken anchor"
+            exit 1
+          fi
           test -s .mkdocs-check/index.html
           test -s .mkdocs-check/zh/index.html
 

@@ -10,5 +10,7 @@ not maintain a second writable Console source tree.
 - [GitHub repository](https://github.com/NeKiro-project/NeKiro-Console) — source, issues, and releases.
 - [Core RepoWiki](https://nekiro-project.github.io/NeKiro/) — platform contracts and architecture.
 
-Detailed pages are rendered from the committed `.qoder/repowiki` export. The
-English and Chinese site entry points share that canonical Console content.
+Detailed pages are rendered from the committed `.qoder/repowiki` export and
+retain their canonical source language. The English and Chinese navigation
+entry points share that canonical Console content rather than presenting an
+unverified translation.
