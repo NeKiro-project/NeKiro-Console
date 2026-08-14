@@ -46,16 +46,49 @@ pnpm dev
 ## Verification
 
 ```text
+pnpm install --frozen-lockfile
 pnpm typecheck
 pnpm test
 pnpm build
 ```
+
+A successful local verification has all of these observable results:
+
+- TypeScript exits with code `0` and reports no diagnostics.
+- The Node test runner reports no failed tests.
+- Vite exits with code `0` and creates the production `dist/` directory.
+
+The Playwright suite is intentionally not a standalone mock test. It requires
+the exact Core, Samples, and Stack environment prepared by NeKiro-Stack:
+
+```text
+pnpm test:e2e
+```
+
+Success means every Playwright scenario passes against the live Gateway route;
+the Console must not connect directly to Core internals, PostgreSQL, or sample
+Agent endpoints.
 
 Console CI verifies only Console-owned behavior. Full backend/browser product
 acceptance is owned by
 [NeKiro-Stack](https://github.com/NeKiro-project/NeKiro-Stack), which checks out
 an exact Console commit and invokes the retained Playwright suite against its
 immutable component manifest.
+
+## Pull requests
+
+Pull requests must state the user-visible surface, affected Gateway contract,
+commands run, and their success signals. Contract or route changes must also
+identify the Core revision and the NeKiro-Stack manifest update that will
+verify the production browser path.
+
+## RepoWiki
+
+The [NeKiro Console RepoWiki](https://nekiro-project.github.io/NeKiro-Console/)
+uses English and Chinese navigation for Console-owned documentation rendered
+with MkDocs Material. Detailed RepoWiki exports currently retain their
+canonical source language; the committed `.qoder/repowiki` documents remain
+the source of truth.
 
 ## Related repositories
 

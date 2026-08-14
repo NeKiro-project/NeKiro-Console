@@ -1,0 +1,64 @@
+site_name: NeKiro Console RepoWiki
+site_url: https://nekiro-project.github.io/NeKiro-Console/
+repo_url: https://github.com/NeKiro-project/NeKiro-Console
+repo_name: NeKiro-project/NeKiro-Console
+edit_uri: edit/main/
+docs_dir: .repowiki-site
+
+nav:
+  - Overview: index.md
+  - Console documentation:
+      - Index: console-docs/index.md
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: folder
+      reconfigure_material: true
+      languages:
+        - locale: en
+          name: English
+          build: true
+          default: true
+        - locale: zh
+          name: 中文
+          build: true
+          nav:
+            - 概览: index.md
+            - Console 文档:
+                - 索引: console-docs/index.md
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.tabs
+    - search.suggest
+    - search.share
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - toc:
+      slugify: !!python/name:pymdownx.slugs.uslugify
+  - pymdownx.highlight:
+      anchor_linenums: true
+      linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - mdx_truly_sane_lists
+
+extra_css:
+  - assets/stylesheets/extra.css
