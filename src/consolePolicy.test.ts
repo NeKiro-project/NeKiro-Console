@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type {AgentRelease} from './api/nekiro';
-import {canEndpointChallenge, canReleaseAction, isCurrentRequest, isTrustedEnabledInstallation, matchesPublishedRelease, nextRequestGeneration, agentKey, shouldClearEndpointChallenge} from './consolePolicy';
+import {agentKey, canEndpointChallenge, canReleaseAction, compatibleSkills, inputTemplateFromSchema, isCurrentRequest, isTrustedEnabledInstallation, matchesPublishedRelease, nextRequestGeneration, shouldClearEndpointChallenge} from './consolePolicy';
 
 const agent = {id: 'agent.echo', version: '1.2.3', ownerId: 'provider-1'};
 const release = {
@@ -62,4 +62,28 @@ test('console policy permits failed Binding challenge recovery and clears replac
   assert.equal(shouldClearEndpointChallenge(pending, {...pending, verificationStatus: 'failed'}), true);
   assert.equal(shouldClearEndpointChallenge(pending, {bindingId: 'binding-2', verificationStatus: 'pending'}), true);
   assert.equal(shouldClearEndpointChallenge(null, pending), false);
+});
+
+test('console policy exposes only capabilities authorized by an Installation', () => {
+  const skills = [
+    {id: 'echo', name: 'Echo', description: 'Echo input', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: []},
+    {id: 'documents.read', name: 'Read', description: 'Read a document', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: ['documents.read']},
+    {id: 'documents.write', name: 'Write', description: 'Write a document', inputSchema: {type: 'object'}, outputSchema: {type: 'object'}, requiredPermissions: ['documents.write']},
+  ];
+  assert.deepEqual(compatibleSkills({skills}, {acceptedPermissions: ['documents.read']}).map((skill) => skill.id), ['echo', 'documents.read']);
+});
+
+test('console policy creates a bounded starter object from declared input schema', () => {
+  assert.deepEqual(inputTemplateFromSchema({
+    type: 'object',
+    required: ['message', 'count', 'options'],
+    properties: {
+      message: {type: 'string', examples: ['hello']},
+      count: {type: 'integer', default: 2},
+      options: {type: 'object', required: ['stream'], properties: {stream: {type: 'boolean'}}},
+      mode: {type: 'string', enum: ['safe', 'fast']},
+      omitted: {type: 'string'},
+    },
+  }), {message: 'hello', count: 2, options: {stream: false}, mode: 'safe'});
+  assert.deepEqual(inputTemplateFromSchema({type: 'array'}), {});
 });

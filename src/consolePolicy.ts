@@ -1,4 +1,4 @@
-import type {Agent, Installation} from './types';
+import type {Agent, AgentSkillSummary, Installation} from './types';
 import type {AgentRelease, AgentReleaseState, EndpointBinding, EndpointBindingVerificationStatus} from './api/nekiro';
 
 export type ReleaseLifecycleAction = 'verify' | 'publish' | 'suspend' | 'revoke';
@@ -43,4 +43,50 @@ export function nextRequestGeneration(current: number): number {
 
 export function isCurrentRequest(generation: number, current: number): boolean {
   return generation === current;
+}
+
+export function compatibleSkills(agent: Pick<Agent, 'skills'> | undefined, installation: Pick<Installation, 'acceptedPermissions'>): AgentSkillSummary[] {
+  const accepted = new Set(installation.acceptedPermissions);
+  return (agent?.skills ?? []).filter((skill) => skill.requiredPermissions.every((permission) => accepted.has(permission)));
+}
+
+export function inputTemplateFromSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  if (schema.type !== 'object' || !isRecord(schema.properties)) return {};
+  const required = new Set(Array.isArray(schema.required) ? schema.required.filter((value): value is string => typeof value === 'string') : []);
+  const template: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(schema.properties)) {
+    if (!isRecord(value)) continue;
+    const example = schemaExample(value);
+    if (example !== undefined || required.has(name)) template[name] = example ?? emptySchemaValue(value);
+  }
+  return template;
+}
+
+function schemaExample(schema: Record<string, unknown>): unknown {
+  if ('default' in schema && isJsonValue(schema.default)) return schema.default;
+  if (Array.isArray(schema.examples) && schema.examples.length > 0 && isJsonValue(schema.examples[0])) return schema.examples[0];
+  if (Array.isArray(schema.enum) && schema.enum.length > 0 && isJsonValue(schema.enum[0])) return schema.enum[0];
+  return undefined;
+}
+
+function emptySchemaValue(schema: Record<string, unknown>): unknown {
+  switch (schema.type) {
+    case 'string': return '';
+    case 'integer':
+    case 'number': return 0;
+    case 'boolean': return false;
+    case 'array': return [];
+    case 'object': return inputTemplateFromSchema(schema);
+    default: return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isJsonValue(value: unknown): boolean {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean' || typeof value === 'number') return true;
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isRecord(value) && Object.values(value).every(isJsonValue);
 }

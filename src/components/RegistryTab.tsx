@@ -9,6 +9,7 @@ interface RegistryTabProps {
   draftAgents: Agent[];
   onRegisterAgent: (card: AgentCardV02) => Promise<Agent>;
   onPublishAgent: (agent: Agent) => Promise<void>;
+  onContinueToTrusted: (agent: Agent) => void;
   catalogLoading: boolean;
   catalogError: PlatformErrorView | null;
   catalogReady: boolean;
@@ -36,6 +37,7 @@ export default function RegistryTab(props: RegistryTabProps) {
     draftAgents,
     onRegisterAgent,
     onPublishAgent,
+    onContinueToTrusted,
     catalogLoading,
     catalogError,
     catalogReady,
@@ -217,7 +219,7 @@ export default function RegistryTab(props: RegistryTabProps) {
                 </div>
                 <div className="flex gap-2">
                   {selectedAgent.status === 'draft' && <ActionButton icon={publishing ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />} label="Publish to Catalog" disabled={publishing} onClick={() => void handlePublish(selectedAgent)} />}
-                  {selectedAgent.status === 'published' && <span className="text-[10px] text-brand-on-surface-variant border border-brand-outline-variant rounded px-2 py-1">Review Release in Trusted Publication</span>}
+                  {selectedAgent.status === 'published' && <ActionButton icon={<UploadCloud size={13} />} label="Continue to Publish" onClick={() => onContinueToTrusted(selectedAgent)} />}
                 </div>
               </div>
               <div className="p-4 grid grid-cols-3 gap-3 text-xs border-b border-brand-outline-variant/40">

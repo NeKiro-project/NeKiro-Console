@@ -1,20 +1,21 @@
 import React from 'react';
 import { Database, Cpu, PlayCircle, BookOpen, Settings, HelpCircle, Terminal, ShieldCheck } from 'lucide-react';
+import type {ConsoleTab} from '../types';
 
 interface SidebarProps {
-  activeTab: 'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger';
-  setActiveTab: (tab: 'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger') => void;
+  activeTab: ConsoleTab;
+  setActiveTab: (tab: ConsoleTab) => void;
   onOpenSettings?: () => void;
   onOpenSupport?: () => void;
 }
 
 export default function Sidebar({ activeTab, setActiveTab, onOpenSettings, onOpenSupport }: SidebarProps) {
   const navItems = [
-    { id: 'registry', name: 'Registry', icon: Database },
-    { id: 'trusted', name: 'Trusted Publication', icon: ShieldCheck },
-    { id: 'installations', name: 'Installations', icon: Cpu },
-    { id: 'invocations', name: 'Invocations', icon: PlayCircle },
-    { id: 'ledger', name: 'Ledger', icon: BookOpen },
+    { id: 'registry', name: 'Agents', icon: Database },
+    { id: 'trusted', name: 'Publish', icon: ShieldCheck },
+    { id: 'installations', name: 'Install', icon: Cpu },
+    { id: 'invocations', name: 'Invoke', icon: PlayCircle },
+    { id: 'ledger', name: 'Traces', icon: BookOpen },
   ] as const;
 
   return (

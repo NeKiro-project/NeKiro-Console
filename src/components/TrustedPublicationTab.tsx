@@ -1,9 +1,10 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RefreshCw, ShieldAlert, ShieldCheck} from 'lucide-react';
+import {AlertTriangle, CheckCircle2, ExternalLink, Loader2, RefreshCw, ShieldAlert, ShieldCheck} from 'lucide-react';
 
 import {NekiroApiError, toPlatformErrorView, type AgentRelease, type EndpointBinding, type NekiroApiClient, type VerificationChallenge} from '../api/nekiro';
 import {agentKey, canEndpointChallenge, canReleaseAction, isCurrentRequest, nextRequestGeneration, shouldClearEndpointChallenge} from '../consolePolicy';
-import type {Agent, PlatformErrorView} from '../types';
+import type {Agent, AgentIntent, PlatformErrorView} from '../types';
+import CopyButton from './CopyButton';
 
 interface TrustedPublicationTabProps {
   providerId: string;
@@ -11,12 +12,15 @@ interface TrustedPublicationTabProps {
   agents: Agent[];
   draftAgents: Agent[];
   providerCatalogError: PlatformErrorView | null;
+  initialSelection?: AgentIntent;
   onRefresh: () => void;
+  onContinueToInstall?: (agent: Agent, release: AgentRelease) => void;
+  onReleaseStateChange?: (release: AgentRelease) => void;
 }
 
 type ReleaseAction = 'suspend' | 'revoke';
 
-export default function TrustedPublicationTab({providerId, client, agents, draftAgents, providerCatalogError, onRefresh}: TrustedPublicationTabProps) {
+export default function TrustedPublicationTab({providerId, client, agents, draftAgents, providerCatalogError, initialSelection, onRefresh, onContinueToInstall, onReleaseStateChange}: TrustedPublicationTabProps) {
   const availableAgents = useMemo(() => dedupeAgents([...draftAgents, ...agents].filter((agent) => agent.ownerId === providerId)), [agents, draftAgents, providerId]);
   const [selectedAgentKey, setSelectedAgentKey] = useState('');
   const [endpoint, setEndpoint] = useState('');
@@ -29,6 +33,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
   const [error, setError] = useState<PlatformErrorView | null>(null);
   const [confirmAction, setConfirmAction] = useState<ReleaseAction | null>(null);
   const requestGeneration = useRef(0);
+  const appliedSelectionSequence = useRef<number | null>(null);
 
   useEffect(() => {
     setConfirmAction(null);
@@ -39,6 +44,11 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
   const replaceBinding = (next: EndpointBinding) => {
     if (shouldClearEndpointChallenge(binding, next)) setChallenge(null);
     setBinding(next);
+  };
+
+  const replaceRelease = (next: AgentRelease) => {
+    setRelease(next);
+    onReleaseStateChange?.(next);
   };
 
   const selectAgent = (value: string) => {
@@ -53,6 +63,12 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
     setConfirmAction(null);
     setError(null);
   };
+
+  useEffect(() => {
+    if (!initialSelection || appliedSelectionSequence.current === initialSelection.sequence || !availableAgents.some((agent) => agentKey(agent) === initialSelection.agentKey)) return;
+    appliedSelectionSequence.current = initialSelection.sequence;
+    selectAgent(initialSelection.agentKey);
+  }, [availableAgents, initialSelection]);
 
   useEffect(() => {
     if (selectedAgentKey && !availableAgents.some((agent) => agentKey(agent) === selectedAgentKey)) {
@@ -180,7 +196,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       const authoritative = await client.getAgentRelease(value.releaseId);
       if (!isCurrentRequest(generation, requestGeneration.current)) return;
       assertReleaseMatches(authoritative, providerId, selectedAgent, binding.bindingId);
-      setRelease(authoritative);
+      replaceRelease(authoritative);
       setReleaseId(authoritative.releaseId);
     } catch (readBackError) {
       if (isCurrentRequest(generation, requestGeneration.current)) {
@@ -198,7 +214,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       const value = await client.getAgentRelease(requestedReleaseId);
       if (!isCurrentRequest(generation, requestGeneration.current)) return;
       assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId);
-      setRelease(value);
+      replaceRelease(value);
       setConfirmAction(null);
     } catch (value) {
       if (isCurrentRequest(generation, requestGeneration.current)) {
@@ -217,7 +233,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
       const value = await client.getAgentRelease(requestedReleaseId);
       if (!isCurrentRequest(generation, requestGeneration.current)) return;
       assertReleaseMatches(value, providerId, selectedAgent, binding?.bindingId);
-      setRelease(value);
+      replaceRelease(value);
       setConfirmAction(null);
     } catch (value) {
       if (isCurrentRequest(generation, requestGeneration.current)) {
@@ -243,7 +259,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
         const authoritative = await client.getAgentRelease(value.releaseId);
         if (!isCurrentRequest(generation, requestGeneration.current)) return;
         assertReleaseMatches(authoritative, providerId, selectedAgent, binding?.bindingId ?? authoritative.endpointBindingId);
-        setRelease(authoritative);
+        replaceRelease(authoritative);
         setReleaseId(authoritative.releaseId);
         setConfirmAction(null);
       } catch (readBackError) {
@@ -328,7 +344,7 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
                 <div className="flex items-center gap-2 text-brand-primary font-semibold"><ShieldAlert size={14} /> Serve this exact proof at the challenge URL, then complete once.</div>
                 <Fact label="Challenge ID" value={challenge.challengeId} />
                 <Fact label="Challenge URL" value={challenge.challengeUrl} />
-                <div className="flex items-center gap-2"><span className="font-mono-label text-[10px] uppercase text-brand-on-surface-variant">Proof</span><code className="font-mono-code text-brand-on-surface break-all">{challenge.proof}</code><Copy size={13} /></div>
+                <div className="flex items-center gap-2"><span className="font-mono-label text-[10px] uppercase text-brand-on-surface-variant">Proof</span><code className="min-w-0 flex-1 select-text font-mono-code text-brand-on-surface break-all">{challenge.proof}</code><CopyButton value={challenge.proof} label="Copy proof" /></div>
                 <Fact label="Expires" value={challenge.expiresAt} />
               </div>
             )}
@@ -350,6 +366,12 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
             </div>
             {operation && <div className="flex items-center gap-2 mt-3 text-xs text-brand-on-surface-variant"><Loader2 size={13} className="animate-spin" /> {operation} in progress</div>}
             {release && <ReleaseFacts release={release} />}
+            {release?.state === 'published' && selectedAgent && onContinueToInstall && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-green-400/30 bg-green-500/10 p-3 text-xs text-brand-on-surface-variant">
+                <div><span className="font-semibold text-green-300">Release published.</span> Continue with this exact Agent version and Release.</div>
+                <button type="button" onClick={() => onContinueToInstall(selectedAgent, release)} className="rounded-lg bg-brand-primary px-3 py-2 font-semibold text-white">Continue to Install</button>
+              </div>
+            )}
             {confirmAction && (
               <div className="mt-4 border border-brand-error/30 bg-brand-error-container/10 rounded-lg p-3 text-xs text-brand-on-surface-variant">
                 <div className="font-semibold text-brand-error">Confirm {confirmAction} of {release?.releaseId}</div>

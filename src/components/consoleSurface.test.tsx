@@ -5,6 +5,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import type {AgentRelease, NekiroApiClient} from '../api/nekiro';
 import InstallationsTab from './InstallationsTab';
 import InvocationsTab from './InvocationsTab';
+import JourneyBar from './JourneyBar';
 import TrustedPublicationTab from './TrustedPublicationTab';
 import type {Agent, Installation, Workspace} from '../types';
 
@@ -41,7 +42,7 @@ test('Installations surface keeps same-Agent versions distinct', () => {
       error={null}
       searchQuery=""
       client={client}
-      onInstallAgent={async (_agent: Agent, _release: AgentRelease, _permissions: string[]) => {}}
+      onInstallAgent={async (selectedAgent: Agent, release: AgentRelease, permissions: string[]) => ({...installation(selectedAgent.id, 'enabled', release.releaseId), acceptedPermissions: permissions})}
       onUpdateInstallation={async (_installation: Installation, _status: 'enabled' | 'disabled') => {}}
       onUninstall={async (_installation: Installation) => true}
       onRefresh={() => {}}
@@ -62,7 +63,7 @@ test('Installations surface requires explicit Agent and permission authorization
       error={null}
       searchQuery=""
       client={client}
-      onInstallAgent={async (_agent: Agent, _release: AgentRelease, _permissions: string[]) => {}}
+      onInstallAgent={async (selectedAgent: Agent, release: AgentRelease, permissions: string[]) => ({...installation(selectedAgent.id, 'enabled', release.releaseId), acceptedPermissions: permissions})}
       onUpdateInstallation={async (_installation: Installation, _status: 'enabled' | 'disabled') => {}}
       onUninstall={async (_installation: Installation) => true}
       onRefresh={() => {}}
@@ -79,7 +80,7 @@ test('Invocation surface excludes enabled legacy Installations without Release i
     installation('legacy.echo', 'enabled'),
     installation('agent.echo', 'enabled', 'release-1'),
     installation('disabled.echo', 'disabled', 'release-2'),
-  ]} client={client} />);
+  ]} client={client} onInspect={() => {}} />);
 
   assert.match(markup, /release-1/);
   assert.doesNotMatch(markup, /legacy\.echo/);
@@ -100,4 +101,23 @@ test('Trusted Publication surface only renders provider-owned Cards', () => {
 
   assert.match(markup, /provider\.agent/);
   assert.doesNotMatch(markup, /other\.agent/);
+});
+
+test('journey surface presents the current lifecycle as five user tasks', () => {
+  const markup = renderToStaticMarkup(<JourneyBar
+    activeTab="invocations"
+    onNavigate={() => {}}
+    agentCount={2}
+    hasPublishedRelease={true}
+    enabledInstallationCount={1}
+    hasCorrelation={false}
+  />);
+
+  assert.match(markup, /Step 1/);
+  assert.match(markup, /Agents/);
+  assert.match(markup, /Publish/);
+  assert.match(markup, /Install/);
+  assert.match(markup, /Invoke/);
+  assert.match(markup, /Trace/);
+  assert.match(markup, /aria-current="step"/);
 });
