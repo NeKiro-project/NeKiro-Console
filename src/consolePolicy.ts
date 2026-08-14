@@ -1,5 +1,5 @@
-import type {Agent, AgentSkillSummary, Installation} from './types';
-import type {AgentRelease, AgentReleaseState, EndpointBinding, EndpointBindingVerificationStatus} from './api/nekiro';
+import type {Agent, AgentSkillSummary, Installation, PlatformErrorView} from './types';
+import type {AgentRelease, AgentReleaseState, EndpointBinding, EndpointBindingVerificationStatus, InvocationResultStreamEventV2, InvocationResultV1} from './api/nekiro';
 
 export type ReleaseLifecycleAction = 'verify' | 'publish' | 'suspend' | 'revoke';
 
@@ -43,6 +43,23 @@ export function nextRequestGeneration(current: number): number {
 
 export function isCurrentRequest(generation: number, current: number): boolean {
   return generation === current;
+}
+
+export function canContinueToTrustedPublication(agent: Pick<Agent, 'ownerId'>, providerId: string): boolean {
+  return agent.ownerId === providerId;
+}
+
+export function invocationCorrelation(
+  result: Pick<InvocationResultV1, 'invocationId' | 'traceId'> | null,
+  events: ReadonlyArray<Pick<InvocationResultStreamEventV2, 'invocationId' | 'traceId'>>,
+  error: Pick<PlatformErrorView, 'invocationId' | 'traceId'> | null,
+): {invocationId: string; traceId: string} | null {
+  if (result) return {invocationId: result.invocationId, traceId: result.traceId};
+  const latestEvent = events[events.length - 1];
+  if (latestEvent) return {invocationId: latestEvent.invocationId, traceId: latestEvent.traceId};
+  return error?.invocationId && error.traceId
+    ? {invocationId: error.invocationId, traceId: error.traceId}
+    : null;
 }
 
 export function compatibleSkills(agent: Pick<Agent, 'skills'> | undefined, installation: Pick<Installation, 'acceptedPermissions'>): AgentSkillSummary[] {

@@ -6,7 +6,7 @@ import {isCurrentRequest, nextRequestGeneration} from '../consolePolicy';
 import type {LedgerIntent, PlatformErrorView, Workspace} from '../types';
 import CopyButton from './CopyButton';
 
-export default function LedgerTab({workspace, client, initialLookup}: {workspace: Workspace | null; client: NekiroApiClient; initialLookup?: LedgerIntent}) {
+export default function LedgerTab({workspace, client, initialLookup, onReadSuccess}: {workspace: Workspace | null; client: NekiroApiClient; initialLookup?: LedgerIntent; onReadSuccess?: (workspaceId: string) => void}) {
   const [invocationId, setInvocationId] = useState('');
   const [traceId, setTraceId] = useState('');
   const [detail, setDetail] = useState<InvocationDetailResponseV4 | null>(null);
@@ -33,17 +33,23 @@ export default function LedgerTab({workspace, client, initialLookup}: {workspace
     try {
       if (kind === 'invocation') {
         const value = await client.getInvocation(workspaceId, requestedId);
-        if (isCurrentRequest(generation, requestGeneration.current)) setDetail(value);
+        if (isCurrentRequest(generation, requestGeneration.current)) {
+          setDetail(value);
+          onReadSuccess?.(workspaceId);
+        }
       } else {
         const value = await client.getTrace(workspaceId, requestedId);
-        if (isCurrentRequest(generation, requestGeneration.current)) setTrace(value);
+        if (isCurrentRequest(generation, requestGeneration.current)) {
+          setTrace(value);
+          onReadSuccess?.(workspaceId);
+        }
       }
     } catch (value) {
       if (isCurrentRequest(generation, requestGeneration.current)) setError(toPlatformErrorView(value, 'Ledger read failed.'));
     } finally {
       if (isCurrentRequest(generation, requestGeneration.current)) setLoading(false);
     }
-  }, [client, invocationId, traceId, workspace]);
+  }, [client, invocationId, onReadSuccess, traceId, workspace]);
 
   useEffect(() => {
     requestGeneration.current = nextRequestGeneration(requestGeneration.current);

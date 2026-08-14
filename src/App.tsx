@@ -41,6 +41,7 @@ export default function App() {
   const [installSelection, setInstallSelection] = useState<InstallIntent>();
   const [invocationSelection, setInvocationSelection] = useState<InvocationIntent>();
   const [ledgerSelection, setLedgerSelection] = useState<LedgerIntent>();
+  const [traceComplete, setTraceComplete] = useState(false);
   const intentSequence = useRef(0);
   const catalogRequestGeneration = useRef(0);
   const providerCatalogRequestGeneration = useRef(0);
@@ -118,6 +119,7 @@ export default function App() {
     setInstallations([]);
     setInvocationSelection(undefined);
     setLedgerSelection(undefined);
+    setTraceComplete(false);
     setInstallationLoading(false);
     setWorkspaceLoading(true);
     setWorkspaceError(null);
@@ -126,11 +128,13 @@ export default function App() {
       if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return null;
       setWorkspace(value);
       setWorkspaceDraft(value.workspaceId);
+      setTraceComplete(false);
       return value;
     } catch (error) {
       if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return null;
       setWorkspace(null);
       setInstallations([]);
+      setTraceComplete(false);
       setWorkspaceError(toPlatformErrorView(error, 'Unable to load Workspace.'));
       return null;
     } finally {
@@ -183,6 +187,7 @@ export default function App() {
     setInstallations([]);
     setInvocationSelection(undefined);
     setLedgerSelection(undefined);
+    setTraceComplete(false);
     setInstallationLoading(false);
     setWorkspaceLoading(true);
     setWorkspaceError(null);
@@ -191,6 +196,7 @@ export default function App() {
       if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return;
       setWorkspace(value);
       setWorkspaceDraft(value.workspaceId);
+      setTraceComplete(false);
       await loadInstallations(value.workspaceId);
     } catch (error) {
       if (isCurrentRequest(generation, workspaceRequestGeneration.current)) {
@@ -354,6 +360,7 @@ export default function App() {
           hasPublishedRelease={Boolean(installSelection)}
           enabledInstallationCount={installations.filter(isTrustedEnabledInstallation).length}
           hasCorrelation={Boolean(ledgerSelection)}
+          traceComplete={traceComplete}
         />
         <AnimatePresence mode="wait" initial={false}>
           {activeTab === 'registry' && (
@@ -430,6 +437,7 @@ export default function App() {
                 client={ownerClient}
                 initialSelection={invocationSelection}
                 onInspect={(_invocationId, traceId) => {
+                  setTraceComplete(false);
                   setLedgerSelection({kind: 'trace', id: traceId, sequence: nextIntentSequence()});
                   navigate('ledger');
                 }}
@@ -439,7 +447,9 @@ export default function App() {
 
           {activeTab === 'ledger' && (
             <motion.div key="ledger" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <div key={workspace?.workspaceId ?? 'no-workspace'} className="contents"><LedgerTab workspace={workspace} client={ownerClient} initialLookup={ledgerSelection} /></div>
+              <div key={workspace?.workspaceId ?? 'no-workspace'} className="contents"><LedgerTab workspace={workspace} client={ownerClient} initialLookup={ledgerSelection} onReadSuccess={(readWorkspaceId) => {
+                if (activeWorkspaceRef.current?.workspaceId === readWorkspaceId) setTraceComplete(true);
+              }} /></div>
             </motion.div>
           )}
         </AnimatePresence>

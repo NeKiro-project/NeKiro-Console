@@ -2,7 +2,7 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {Activity, CheckCircle2, GitBranch, LoaderCircle, Play, Radio, RotateCcw, ShieldAlert} from 'lucide-react';
 
 import {toPlatformErrorView, type AgentCardV02, type InvocationResultStreamEventV2, type InvocationResultV1, type NekiroApiClient} from '../api/nekiro';
-import {compatibleSkills, inputTemplateFromSchema, isCurrentRequest, isTrustedEnabledInstallation, nextRequestGeneration} from '../consolePolicy';
+import {compatibleSkills, inputTemplateFromSchema, invocationCorrelation, isCurrentRequest, isTrustedEnabledInstallation, nextRequestGeneration} from '../consolePolicy';
 import type {Installation, InvocationIntent, PlatformErrorView, Workspace} from '../types';
 
 interface InvocationsTabProps {
@@ -242,14 +242,7 @@ function DispatchForm({workspace, enabled, installationId, setInstallationId, sk
 }
 
 function ResponsePanel({stream, loading, result, events, error, onInspect}: {stream: boolean; loading: boolean; result: InvocationResultV1 | null; events: InvocationResultStreamEventV2[]; error: PlatformErrorView | null; onInspect: (invocationId: string, traceId: string) => void}) {
-  const terminalEvent = [...events].reverse().find((event) => ['completed', 'failed', 'canceled', 'timed_out'].includes(event.type));
-  const correlation = result
-    ? {invocationId: result.invocationId, traceId: result.traceId}
-    : terminalEvent
-      ? {invocationId: terminalEvent.invocationId, traceId: terminalEvent.traceId}
-      : error?.invocationId && error.traceId
-        ? {invocationId: error.invocationId, traceId: error.traceId}
-        : null;
+  const correlation = invocationCorrelation(result, events, error);
   return (
     <section className="bg-brand-low border border-brand-outline-variant rounded-xl overflow-hidden min-h-0 flex flex-col">
       <div className="px-4 py-3 border-b border-brand-outline-variant/60 flex items-center gap-2"><Activity size={15} className="text-brand-primary" /><span className="text-xs font-bold">Gateway response</span>{stream && <span className="ml-auto flex items-center gap-1 text-[10px] text-amber-300"><Radio size={12} /> SSE</span>}</div>

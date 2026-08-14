@@ -111,6 +111,7 @@ test('journey surface presents the current lifecycle as five user tasks', () => 
     hasPublishedRelease={true}
     enabledInstallationCount={1}
     hasCorrelation={false}
+    traceComplete={true}
   />);
 
   assert.match(markup, /Step 1/);
@@ -119,5 +120,7 @@ test('journey surface presents the current lifecycle as five user tasks', () => 
   assert.match(markup, /Install/);
   assert.match(markup, /Invoke/);
   assert.match(markup, /Trace/);
+  assert.match(markup, /Trace inspected/);
+  assert.match(markup, /data-journey-step="ledger" data-complete="true"/);
   assert.match(markup, /aria-current="step"/);
 });

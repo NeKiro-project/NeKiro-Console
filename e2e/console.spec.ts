@@ -202,6 +202,7 @@ test('production Console completes trusted publication, invocation, trace, and i
   expect(childInvocation?.rootTaskId).toBe(rootInvocation?.rootTaskId);
   expect(childInvocation?.traceId).toBe(rootInvocation?.traceId);
   await expect(page.getByText(new RegExp(`${escapeRegExp(result.traceId)}`)).last()).toBeVisible();
+  await expect(page.locator('[data-journey-step="ledger"]')).toHaveAttribute('data-complete', 'true');
   const ledgerText = await page.locator('main').innerText();
   expect(ledgerText).toContain(runtimeA.id);
   expect(ledgerText).toContain(runtimeB.id);

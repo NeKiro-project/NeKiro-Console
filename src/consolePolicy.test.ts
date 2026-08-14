@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type {AgentRelease} from './api/nekiro';
-import {agentKey, canEndpointChallenge, canReleaseAction, compatibleSkills, inputTemplateFromSchema, isCurrentRequest, isTrustedEnabledInstallation, matchesPublishedRelease, nextRequestGeneration, shouldClearEndpointChallenge} from './consolePolicy';
+import {agentKey, canContinueToTrustedPublication, canEndpointChallenge, canReleaseAction, compatibleSkills, inputTemplateFromSchema, invocationCorrelation, isCurrentRequest, isTrustedEnabledInstallation, matchesPublishedRelease, nextRequestGeneration, shouldClearEndpointChallenge} from './consolePolicy';
 
 const agent = {id: 'agent.echo', version: '1.2.3', ownerId: 'provider-1'};
 const release = {
@@ -86,4 +86,17 @@ test('console policy creates a bounded starter object from declared input schema
     },
   }), {message: 'hello', count: 2, options: {stream: false}, mode: 'safe'});
   assert.deepEqual(inputTemplateFromSchema({type: 'array'}), {});
+});
+
+test('console policy only continues provider-owned Agents to Trusted Publication', () => {
+  assert.equal(canContinueToTrustedPublication({ownerId: 'provider.main'}, 'provider.main'), true);
+  assert.equal(canContinueToTrustedPublication({ownerId: 'provider.other'}, 'provider.main'), false);
+});
+
+test('console policy preserves correlation from the latest validated SSE event', () => {
+  assert.deepEqual(invocationCorrelation(null, [
+    {invocationId: 'inv-1', traceId: 'trace-1'},
+    {invocationId: 'inv-1', traceId: 'trace-1'},
+  ], {invocationId: undefined, traceId: undefined}), {invocationId: 'inv-1', traceId: 'trace-1'});
+  assert.deepEqual(invocationCorrelation(null, [], {invocationId: 'inv-2', traceId: 'trace-2'}), {invocationId: 'inv-2', traceId: 'trace-2'});
 });
