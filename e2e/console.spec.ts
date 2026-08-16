@@ -71,7 +71,7 @@ test('production Console completes trusted publication, invocation, trace, and i
   page.on('request', (request) => {
     requestUrls.push(request.url());
     if (request.postData()) requestBodies.push(request.postData() ?? '');
-    if (/\/v[34]\//.test(request.url())) apiRequests.push(request.url());
+    if (/\/v1\//.test(request.url())) apiRequests.push(request.url());
   });
   page.on('console', (message) => consoleMessages.push(message.text()));
 
@@ -228,6 +228,7 @@ test('production Console completes trusted publication, invocation, trace, and i
   const gatewayOrigin = new URL(apiBaseURL).origin;
   expect(apiRequests.length).toBeGreaterThan(0);
   expect(apiRequests.every((url) => new URL(url).origin === gatewayOrigin)).toBe(true);
+  expect(requestUrls.some((url) => /\/v[234]\//.test(new URL(url).pathname))).toBe(false);
   expect(requestUrls.some((url) => {
     const parsed = new URL(url);
     return /\/internal\/|\/agent\//.test(parsed.pathname) || parsed.hostname === 'runtime-a' || parsed.hostname === 'runtime-b';
