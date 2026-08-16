@@ -225,8 +225,8 @@ export default function App() {
 
   const handlePublishAgent = async (agent: Agent) => {
     await providerClient.publishAgentVersion(agent.id, agent.version);
-    setDraftAgents((current) => current.filter((draft) => agentKey(draft) !== agentKey(agent)));
     await Promise.all([loadAgents(searchQuery), loadProviderAgents(searchQuery)]);
+    setDraftAgents((current) => current.filter((draft) => agentKey(draft) !== agentKey(agent)));
   };
 
   const handleInstallAgent = async (agent: Agent, release: AgentRelease, acceptedPermissions: string[]) => {
