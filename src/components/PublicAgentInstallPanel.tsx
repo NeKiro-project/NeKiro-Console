@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {AlertTriangle, Loader2, ShieldCheck} from 'lucide-react';
 
 import {toPlatformErrorView, validatePublicInstallation, type NekiroApiClient, type PublicAgentRelease, type PublicAgentShare} from '../api/nekiro';
+import {consoleEnvironment} from '../consoleConfig';
 import {parsePublicAgentUrl} from '../publicAgentUrl';
 import type {PlatformErrorView, Workspace} from '../types';
 
@@ -31,7 +32,7 @@ export default function PublicAgentInstallPanel({client, workspace, onInstalled,
     setAcceptedPermissions([]);
     setInstalledReleaseID('');
     try {
-      const publicAgentID = parsePublicAgentUrl(candidate, import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN);
+      const publicAgentID = parsePublicAgentUrl(candidate, consoleEnvironment().VITE_NEKIRO_PUBLIC_AGENT_ORIGIN as string);
       const value = await client.resolvePublicAgent(publicAgentID);
       setShare(value);
     } catch (value) {

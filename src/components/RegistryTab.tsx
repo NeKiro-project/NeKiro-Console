@@ -126,7 +126,7 @@ export default function RegistryTab(props: RegistryTabProps) {
         <div>
           <div className="font-mono-label text-[10px] uppercase tracking-[0.24em] text-brand-primary mb-2">Registry</div>
           <h2 className="text-2xl font-bold text-brand-on-surface">Agent Card Catalog</h2>
-          <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Live v3 Catalog surface for Agent Card v0.2 registration and discovery. Trust and Release lifecycle operations are handled in Trusted Publication.</p>
+          <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Live Platform API v1 Catalog surface for Agent Card v0.2 registration and discovery. Trust and Release lifecycle operations are handled in Trusted Publication.</p>
         </div>
         <button onClick={() => setShowForm((value) => !value)} className="px-4 py-2 rounded-lg bg-brand-primary text-brand-on-primary text-xs font-semibold flex items-center gap-2 hover:opacity-95">
           <Plus size={15} /> Register Agent Card
@@ -143,7 +143,7 @@ export default function RegistryTab(props: RegistryTabProps) {
           icon={<ShieldCheck size={15} />}
           label="Gateway"
           value={catalogError ? 'ERROR' : catalogLoading ? 'SYNC' : catalogReady ? 'LIVE' : 'WAIT'}
-          detail={catalogError ? (catalogError.code ?? 'Catalog request failed') : catalogReady ? 'Northbound /v3' : 'Awaiting first response'}
+          detail={catalogError ? (catalogError.code ?? 'Catalog request failed') : catalogReady ? 'Platform API /v1' : 'Awaiting first response'}
           accent="violet"
         />
       </div>

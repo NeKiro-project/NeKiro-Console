@@ -12,11 +12,12 @@ import LedgerTab from './components/LedgerTab';
 import RegistryTab from './components/RegistryTab';
 import Sidebar from './components/Sidebar';
 import TrustedPublicationTab from './components/TrustedPublicationTab';
-import {requireConsoleConfiguration} from './consoleConfig';
+import {consoleEnvironment, requireConsoleConfiguration} from './consoleConfig';
 import type {Agent, AgentIntent, ConsoleTab, Installation, InstallationStatus, InstallIntent, InvocationIntent, LedgerIntent, PlatformErrorView, Workspace} from './types';
 
 export default function App() {
-  requireConsoleConfiguration(import.meta.env);
+  const consoleEnv = consoleEnvironment();
+  requireConsoleConfiguration(consoleEnv);
   const [activeTab, setActiveTab] = useState<ConsoleTab>('registry');
   const [searchQuery, setSearchQuery] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -29,7 +30,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const activeWorkspaceRef = useRef<Workspace | null>(null);
   activeWorkspaceRef.current = workspace;
-  const [workspaceDraft, setWorkspaceDraft] = useState(import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID ?? '');
+  const [workspaceDraft, setWorkspaceDraft] = useState(consoleEnv.VITE_NEKIRO_DEFAULT_WORKSPACE_ID as string ?? '');
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState<PlatformErrorView | null>(null);
   const [installations, setInstallations] = useState<Installation[]>([]);
@@ -61,17 +62,17 @@ export default function App() {
 
   const providerClient = useMemo(
     () => new NekiroApiClient({
-      baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
-      token: import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN,
-      publicAgentOrigin: import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN,
+      baseUrl: consoleEnv.VITE_NEKIRO_API_BASE_URL as string,
+      token: consoleEnv.VITE_NEKIRO_PROVIDER_TOKEN as string,
+      publicAgentOrigin: consoleEnv.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN as string,
     }),
     [],
   );
   const ownerClient = useMemo(
     () => new NekiroApiClient({
-      baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
-      token: import.meta.env.VITE_NEKIRO_OWNER_TOKEN,
-      publicAgentOrigin: import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN,
+      baseUrl: consoleEnv.VITE_NEKIRO_API_BASE_URL as string,
+      token: consoleEnv.VITE_NEKIRO_OWNER_TOKEN as string,
+      publicAgentOrigin: consoleEnv.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN as string,
     }),
     [],
   );
@@ -101,7 +102,7 @@ export default function App() {
     providerCatalogRequestGeneration.current = generation;
     setProviderCatalogError(null);
     try {
-      const providerId = import.meta.env.VITE_NEKIRO_PROVIDER_ID;
+      const providerId = consoleEnv.VITE_NEKIRO_PROVIDER_ID as string;
       const response = await providerClient.searchAgents({ownerId: providerId, ...(query.trim() ? {query: query.trim()} : {})});
       if (!isCurrentRequest(generation, providerCatalogRequestGeneration.current)) return;
       setProviderAgents(response.items.map(mapCatalogEntry).filter((agent) => agent.ownerId === providerId));
@@ -174,7 +175,7 @@ export default function App() {
 
   useEffect(() => {
     if (defaultWorkspaceInitialized.current) return;
-    const defaultWorkspaceId = import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID;
+    const defaultWorkspaceId = consoleEnv.VITE_NEKIRO_DEFAULT_WORKSPACE_ID as string;
     if (!defaultWorkspaceId) return;
     defaultWorkspaceInitialized.current = true;
     void loadWorkspace(defaultWorkspaceId).then((value) => value && loadInstallations(value.workspaceId));
@@ -349,7 +350,7 @@ export default function App() {
         onReadWorkspace={handleReadWorkspace}
         onCreateWorkspace={handleCreateWorkspace}
         userLabel={workspace?.ownerId ?? 'Workspace owner'}
-        apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL && import.meta.env.VITE_NEKIRO_PROVIDER_ID && import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN && import.meta.env.VITE_NEKIRO_OWNER_TOKEN && import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID)}
+        apiConfigured={Boolean(consoleEnv.VITE_NEKIRO_API_BASE_URL && consoleEnv.VITE_NEKIRO_PROVIDER_ID && consoleEnv.VITE_NEKIRO_PROVIDER_TOKEN && consoleEnv.VITE_NEKIRO_OWNER_TOKEN && consoleEnv.VITE_NEKIRO_DEFAULT_WORKSPACE_ID)}
       />
 
       <main className="ml-64 mt-16 w-[calc(100vw-256px)] h-[calc(100vh-64px)] overflow-y-auto bg-brand-bg p-7 relative">
@@ -373,8 +374,8 @@ export default function App() {
                 catalogLoading={catalogLoading}
                 catalogError={catalogError}
                 catalogReady={catalogReady}
-                defaultOwnerId={import.meta.env.VITE_NEKIRO_PROVIDER_ID ?? ''}
-                defaultOwnerName={import.meta.env.VITE_NEKIRO_PROVIDER_NAME ?? ''}
+                defaultOwnerId={consoleEnv.VITE_NEKIRO_PROVIDER_ID as string ?? ''}
+                defaultOwnerName={consoleEnv.VITE_NEKIRO_PROVIDER_NAME as string ?? ''}
                 searchQuery={searchQuery}
                 onContinueToTrusted={(agent) => {
                   setTrustedSelection({agentKey: agentKey(agent), sequence: nextIntentSequence()});
@@ -387,7 +388,7 @@ export default function App() {
           {activeTab === 'trusted' && (
             <motion.div key="trusted" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
               <TrustedPublicationTab
-                providerId={import.meta.env.VITE_NEKIRO_PROVIDER_ID ?? ''}
+                providerId={consoleEnv.VITE_NEKIRO_PROVIDER_ID as string ?? ''}
                 client={providerClient}
                 agents={providerAgents}
                 draftAgents={draftAgents}
@@ -458,10 +459,10 @@ export default function App() {
       {showSettings && (
         <Overlay title="Control Plane Settings" icon={<Cpu size={22} />} onClose={() => setShowSettings(false)}>
           <div className="space-y-3 text-sm text-brand-on-surface-variant">
-            <p>Base URL: <span className="font-mono-code text-brand-on-surface">{import.meta.env.VITE_NEKIRO_API_BASE_URL || 'not configured'}</span></p>
+            <p>Base URL: <span className="font-mono-code text-brand-on-surface">{consoleEnv.VITE_NEKIRO_API_BASE_URL as string || 'not configured'}</span></p>
             <p>Provider context: <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_PROVIDER_ID</span> + <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_PROVIDER_TOKEN</span></p>
             <p>Workspace owner context: <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_OWNER_TOKEN</span> (credentials are never persisted in local storage)</p>
-            <p>Default Workspace: <span className="font-mono-code text-brand-on-surface">{import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID || 'manual selection'}</span></p>
+            <p>Default Workspace: <span className="font-mono-code text-brand-on-surface">{consoleEnv.VITE_NEKIRO_DEFAULT_WORKSPACE_ID as string || 'manual selection'}</span></p>
           </div>
         </Overlay>
       )}

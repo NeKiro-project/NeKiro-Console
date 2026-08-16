@@ -7,6 +7,8 @@ repository does not maintain a production UI copy after the repository split.
 The Console talks only to the NeKiro Gateway. It supports trusted Agent
 publication, public Agent share URLs, Catalog discovery, exact Release
 installation, managed JSON/SSE invocation, and Workspace-scoped Ledger reads.
+Every Gateway request uses Platform API `/v1`; the Console does not probe or
+fall back to retired `/v2`, `/v3`, or `/v4` paths.
 
 The authenticated Console presents those capabilities as one guided journey:
 
@@ -36,6 +38,18 @@ Provider and Workspace credentials are sent only as authorization headers and
 are not written to browser storage. Missing, blank, whitespace-padded, or
 otherwise invalid required configuration fails at startup.
 
+The production image reads the same names at container startup, so one image
+can be promoted without rebuilding browser assets. It also requires an
+explicit listen address:
+
+```text
+NEKIRO_CONSOLE_LISTEN_ADDRESS=0.0.0.0:8080
+```
+
+`GET /readyz` reports readiness. `/config.js` is generated in memory with
+`no-store`; credentials are never printed by the server. These browser tokens
+are evaluation/operator credentials, not a substitute for Gateway policy.
+
 ## Development
 
 ```text
@@ -57,6 +71,13 @@ A successful local verification has all of these observable results:
 - TypeScript exits with code `0` and reports no diagnostics.
 - The Node test runner reports no failed tests.
 - Vite exits with code `0` and creates the production `dist/` directory.
+
+## Releases
+
+Annotated semantic tags publish the multi-architecture Console image to GHCR
+and attach its immutable digest and checksum to the GitHub Release. The tag
+must equal the version in `package.json`. The v0.1 release line supports only
+Platform API `/v1`; old route probing is intentionally absent.
 
 The Playwright suite is intentionally not a standalone mock test. It requires
 the exact Core, Samples, and Stack environment prepared by NeKiro-Stack:

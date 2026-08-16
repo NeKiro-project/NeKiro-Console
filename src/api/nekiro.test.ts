@@ -136,7 +136,7 @@ test('mapCatalogEntry maps Catalog entries to the Console view model without dep
   assert.equal(JSON.parse(agent.schema).agentId, 'runtime.disabled');
 });
 
-test('NekiroApiClient sends v3 Catalog search requests with auth and decodes platform errors', async () => {
+test('NekiroApiClient sends Platform API v1 Catalog search requests with auth and decodes platform errors', async () => {
   const requests: Array<{url: string; init?: RequestInit}> = [];
   const client = new NekiroApiClient({
     baseUrl: 'https://api.example.test/',
@@ -165,7 +165,7 @@ test('NekiroApiClient sends v3 Catalog search requests with auth and decodes pla
     },
   );
 
-  assert.equal(requests[0]?.url, 'https://api.example.test/v3/agents?query=echo');
+  assert.equal(requests[0]?.url, 'https://api.example.test/v1/agents?query=echo');
   const headers = new Headers(requests[0]?.init?.headers);
   assert.equal(headers.get('Accept'), 'application/json');
   assert.equal(headers.get('Authorization'), 'Bearer test-token');
@@ -191,12 +191,12 @@ test('NekiroApiClient resolves public Agent shares anonymously and preserves exa
   });
   const result = await client.resolvePublicAgent(publicAgentId);
   assert.equal(result.releases[0]?.releaseId, 'release-1');
-  assert.equal(requests[0]?.url, 'https://api.example.test/v4/public/agents/' + publicAgentId);
+  assert.equal(requests[0]?.url, 'https://api.example.test/v1/public/agents/' + publicAgentId);
   const headers = new Headers(requests[0]?.init?.headers);
   assert.equal(headers.get('Authorization'), null);
 });
 
-test('NekiroApiClient covers Workspace and Installation v3 paths', async () => {
+test('NekiroApiClient covers Platform API v1 Workspace and Installation paths', async () => {
   const requests: Array<{url: string; init?: RequestInit}> = [];
   const client = new NekiroApiClient({
     baseUrl: 'https://api.example.test',
@@ -212,7 +212,7 @@ test('NekiroApiClient covers Workspace and Installation v3 paths', async () => {
   const result = await client.listInstallations('workspace.alpha', {limit: 50, cursor: 'next'});
 
   assert.equal(result.items[0]?.installedReleaseId, 'release-1');
-  assert.equal(requests[0]?.url, 'https://api.example.test/v3/workspaces/workspace.alpha/installations?limit=50&cursor=next');
+  assert.equal(requests[0]?.url, 'https://api.example.test/v1/workspaces/workspace.alpha/installations?limit=50&cursor=next');
 });
 
 test('NekiroApiClient strictly maps every Installation read response', async () => {
@@ -231,7 +231,7 @@ test('NekiroApiClient strictly maps every Installation read response', async () 
   await assert.rejects(() => client.getInstallation('workspace.alpha', 'installation-1'), /unknown field/);
 });
 
-test('NekiroApiClient enforces Installation v2 semantic response rules', async () => {
+test('NekiroApiClient enforces Installation response semantic rules', async () => {
   const base = {
     installationId: 'installation-1', workspaceId: 'workspace.alpha', agentId: 'agent.echo', versionConstraint: '^1.0.0', installedVersion: '1.2.3', acceptedPermissions: ['read', 'write'], status: 'enabled', installedAt: '2026-07-26T00:00:00Z', updatedAt: '2026-07-26T00:00:00Z',
   };
@@ -341,7 +341,7 @@ test('NekiroApiClient installs an exact trusted version and preserves Release pr
   });
   const result = await client.installAgent('workspace.alpha', {agentId: 'agent.echo', versionConstraint: '1.2.3', acceptedPermissions: []});
   assert.equal(result.installedReleaseId, 'release-1');
-  assert.equal(requests[0]?.url, 'https://api.example.test/v3/workspaces/workspace.alpha/installations');
+  assert.equal(requests[0]?.url, 'https://api.example.test/v1/workspaces/workspace.alpha/installations');
   assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {agentId: 'agent.echo', versionConstraint: '1.2.3', acceptedPermissions: []});
 });
 
@@ -411,7 +411,7 @@ test('provider and Workspace-owner clients keep bearer contexts separate', async
   assert.deepEqual(authorization, ['Bearer provider-token', 'Bearer owner-token']);
 });
 
-test('NekiroApiClient constructs a strict v4 JSON invocation request', async () => {
+test('NekiroApiClient constructs a strict Platform API v1 JSON invocation request', async () => {
   const requests: Array<{url: string; init?: RequestInit}> = [];
   const client = new NekiroApiClient({
     baseUrl: 'https://api.example.test',
@@ -423,7 +423,7 @@ test('NekiroApiClient constructs a strict v4 JSON invocation request', async () 
   });
   const result = await client.invoke('workspace.alpha', {agentId: 'runtime.echo', capability: 'runtime.echo', input: {message: 'hello'}, stream: false});
   assert.deepEqual(result.result, {ok: true});
-  assert.equal(requests[0]?.url, 'https://api.example.test/v4/workspaces/workspace.alpha/invocations');
+  assert.equal(requests[0]?.url, 'https://api.example.test/v1/workspaces/workspace.alpha/invocations');
   assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {agentId: 'runtime.echo', capability: 'runtime.echo', input: {message: 'hello'}, stream: false});
 });
 
@@ -443,7 +443,7 @@ test('NekiroApiClient preserves correlated Platform Error v4 fields', async () =
   });
 });
 
-test('NekiroApiClient reads Workspace-scoped v4 Invocation and Trace paths', async () => {
+test('NekiroApiClient reads Workspace-scoped Platform API v1 Invocation and Trace paths', async () => {
   const requests: string[] = [];
   const record = {invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1', caller: {type: 'user', id: 'owner-a'}, workspaceId: 'workspace.alpha', targetAgentId: 'runtime.echo', agentCardVersion: '1.0.0', capability: 'runtime.echo', status: 'pending', createdAt: '2026-07-21T00:00:00Z', updatedAt: '2026-07-21T00:00:00Z'};
   const event = {schemaVersion: '0.3', eventId: 'evt-1', sequence: 0, occurredAt: '2026-07-21T00:00:00Z', type: 'created', status: 'pending', invocationId: 'inv-1', rootTaskId: 'task-1', traceId: 'trace-1', caller: {type: 'user', id: 'owner-a'}, workspaceId: 'workspace.alpha', targetAgentId: 'runtime.echo', agentCardVersion: '1.0.0', capability: 'runtime.echo'};
@@ -453,7 +453,7 @@ test('NekiroApiClient reads Workspace-scoped v4 Invocation and Trace paths', asy
   }});
   await client.getInvocation('workspace.alpha', 'inv-1');
   await client.getTrace('workspace.alpha', 'trace-1');
-  assert.deepEqual(requests, ['https://api.example.test/v4/workspaces/workspace.alpha/invocations/inv-1', 'https://api.example.test/v4/workspaces/workspace.alpha/traces/trace-1']);
+  assert.deepEqual(requests, ['https://api.example.test/v1/workspaces/workspace.alpha/invocations/inv-1', 'https://api.example.test/v1/workspaces/workspace.alpha/traces/trace-1']);
 });
 
 test('NekiroApiClient rejects Invocation Detail provenance changes', async () => {
@@ -568,16 +568,16 @@ test('NekiroApiClient constructs every Trusted Publication Gateway route without
   await client.revokeAgentRelease('release-1');
 
   assert.deepEqual(requests.map((request) => request.url), [
-    'https://api.example.test/v4/providers/provider.main/agents/agent.echo/endpoint-bindings',
-    'https://api.example.test/v4/providers/provider.main/endpoint-bindings/binding-1',
-    'https://api.example.test/v4/providers/provider.main/endpoint-bindings/binding-1/challenges',
-    'https://api.example.test/v4/providers/provider.main/endpoint-bindings/binding-1/challenges/challenge-1/complete',
-    'https://api.example.test/v4/providers/provider.main/agents/agent.echo/releases',
-    'https://api.example.test/v4/releases/release-1',
-    'https://api.example.test/v4/releases/release-1/verify',
-    'https://api.example.test/v4/releases/release-1/publish',
-    'https://api.example.test/v4/releases/release-1/suspend',
-    'https://api.example.test/v4/releases/release-1/revoke',
+    'https://api.example.test/v1/providers/provider.main/agents/agent.echo/endpoint-bindings',
+    'https://api.example.test/v1/providers/provider.main/endpoint-bindings/binding-1',
+    'https://api.example.test/v1/providers/provider.main/endpoint-bindings/binding-1/challenges',
+    'https://api.example.test/v1/providers/provider.main/endpoint-bindings/binding-1/challenges/challenge-1/complete',
+    'https://api.example.test/v1/providers/provider.main/agents/agent.echo/releases',
+    'https://api.example.test/v1/releases/release-1',
+    'https://api.example.test/v1/releases/release-1/verify',
+    'https://api.example.test/v1/releases/release-1/publish',
+    'https://api.example.test/v1/releases/release-1/suspend',
+    'https://api.example.test/v1/releases/release-1/revoke',
   ]);
   assert.deepEqual(requests.map((request) => request.init?.method), ['POST', undefined, 'POST', 'POST', 'POST', undefined, 'POST', 'POST', 'POST', 'POST']);
   assert.deepEqual(JSON.parse(String(requests[0]?.init?.body)), {endpoint: 'https://agent.example/a2a', method: 'http_well_known', version: '1.2.3'});

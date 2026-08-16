@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {requireConsoleConfiguration} from './consoleConfig';
+import {consoleEnvironment, requireConsoleConfiguration} from './consoleConfig';
 
 const validConfiguration = {
   VITE_NEKIRO_API_BASE_URL: 'https://gateway.example.test',
@@ -32,4 +32,11 @@ test('console configuration rejects non-origin public Agent URLs', () => {
   for (const value of ['https://agents.example.test/', 'https://user@agents.example.test', 'https://agents.example.test/a', 'agents.example.test']) {
     assert.throws(() => requireConsoleConfiguration({...validConfiguration, VITE_NEKIRO_PUBLIC_AGENT_ORIGIN: value}));
   }
+});
+
+test('runtime configuration overrides build-time configuration as one atomic source', () => {
+  const build = {VITE_NEKIRO_API_BASE_URL: 'https://build.example.test'};
+  const runtime = {VITE_NEKIRO_API_BASE_URL: 'https://runtime.example.test'};
+  assert.equal(consoleEnvironment(build, runtime), runtime);
+  assert.equal(consoleEnvironment(build, undefined), build);
 });
