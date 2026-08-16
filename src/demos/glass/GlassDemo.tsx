@@ -216,7 +216,7 @@ function Registry({agents, selected, onSelect}: {agents: Agent[]; selected?: Age
               <div className="px-6 py-4 border-b border-white/[0.06]">
                 <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2.5">Declared permissions</div>
                 {selected.permissions.length === 0 ? (
-                  <div className="text-[12px] text-slate-500">No permissions declared — installs submit <span className="font-jb text-slate-300">acceptedPermissions: []</span>.</div>
+                  <div className="text-[12px] text-slate-500">No permissions declared. Installs submit <span className="font-jb text-slate-300">acceptedPermissions: []</span>.</div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {selected.permissions.map((p) => (

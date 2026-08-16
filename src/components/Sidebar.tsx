@@ -1,11 +1,20 @@
-import React from 'react';
-import { Database, Cpu, PlayCircle, BookOpen, Settings, HelpCircle, Terminal, ShieldCheck } from 'lucide-react';
+import { BookOpen, Cpu, Database, HelpCircle, PlayCircle, Settings, ShieldCheck } from 'lucide-react';
 
 interface SidebarProps {
   activeTab: 'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger';
   setActiveTab: (tab: 'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger') => void;
   onOpenSettings?: () => void;
   onOpenSupport?: () => void;
+}
+
+/** The NeKiro monogram — the exact brand mark from public/favicon.ico: sky "N" on ink. */
+function Monogram() {
+  return (
+    <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="8" fill="#111827" />
+      <path d="M9 23V9h3.6l6.8 8.6V9H23v14h-3.4l-7-8.8V23H9z" fill="#38bdf8" />
+    </svg>
+  );
 }
 
 export default function Sidebar({ activeTab, setActiveTab, onOpenSettings, onOpenSupport }: SidebarProps) {
@@ -20,25 +29,19 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenSettings, onOpe
   return (
     <aside
       id="sidebar"
-      className="w-64 h-screen fixed left-0 top-0 bg-brand-lowest border-r border-brand-outline-variant flex flex-col py-5 overflow-y-auto z-50 shadow-lg"
+      className="fixed left-0 top-0 z-50 flex h-screen w-[232px] flex-col border-r border-line bg-ink-900 py-5 max-[900px]:w-16 max-[900px]:items-center max-[900px]:py-4"
     >
-      {/* Branding Header */}
-      <div className="px-5 mb-9 flex items-center gap-3">
-        <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white shadow-[0_0_24px_rgba(99,102,241,0.45)]">
-          <Terminal size={17} />
-        </div>
-        <div>
-          <h1 className="font-headline-md text-sm font-extrabold text-brand-on-surface leading-none tracking-tight">
-            NeKiro
-          </h1>
-          <p className="font-mono-label text-[10px] text-brand-on-surface-variant mt-1 uppercase tracking-wider">
-            Infrastructure Orchestrator
-          </p>
+      {/* Branding */}
+      <div className="mb-8 flex items-center gap-2.5 px-4 max-[900px]:mb-6 max-[900px]:px-0">
+        <Monogram />
+        <div className="min-w-0 max-[900px]:hidden">
+          <div className="text-[14px] font-bold leading-none tracking-tight text-fg">NeKiro</div>
+          <div className="mono-label mt-1.5">Agent Control Plane</div>
         </div>
       </div>
 
-      {/* Navigation Items */}
-      <nav className="flex-1 px-3 space-y-1">
+      {/* Navigation */}
+      <nav className="flex-1 space-y-0.5 px-2.5 max-[900px]:w-full max-[900px]:px-1.5">
         {navItems.map((item) => {
           const IconComponent = item.icon;
           const isActive = activeTab === item.id;
@@ -48,39 +51,43 @@ export default function Sidebar({ activeTab, setActiveTab, onOpenSettings, onOpe
               onClick={() => setActiveTab(item.id)}
               aria-label={item.name}
               title={item.name}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-mono-label text-xs transition-all duration-200 cursor-pointer active:scale-98 text-left border ${
+              className={`relative flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[12.5px] transition-colors duration-100 max-[900px]:justify-center max-[900px]:px-0 ${
                 isActive
-                  ? 'text-white bg-gradient-to-r from-indigo-500/20 to-violet-500/10 border-indigo-400/25 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_20px_rgba(99,102,241,0.15)]'
-                  : 'text-brand-on-surface-variant border-transparent hover:text-brand-on-surface hover:bg-brand-high'
+                  ? 'bg-accent-soft font-medium text-accent-bright'
+                  : 'text-fg-muted hover:bg-ink-800 hover:text-fg'
               }`}
             >
-              <IconComponent size={16} className={isActive ? 'text-brand-primary' : 'text-brand-on-surface-variant'} />
-              <span>{item.name}</span>
+              {isActive && <span className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-accent" aria-hidden="true" />}
+              <IconComponent size={15} className={isActive ? 'text-accent' : 'text-fg-faint'} />
+              <span className="max-[900px]:hidden">{item.name}</span>
             </button>
           );
         })}
       </nav>
 
-      {/* Footer Settings & Support */}
-      <div className="px-3 mt-auto space-y-1 pt-4 border-t border-brand-outline-variant/30">
+      {/* Footer */}
+      <div className="mt-auto space-y-0.5 border-t border-line px-2.5 pt-3 max-[900px]:w-full max-[900px]:px-1.5">
         <button
           onClick={onOpenSettings}
           aria-label="Settings"
           title="Settings"
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded font-mono-label text-xs text-brand-on-surface-variant hover:text-brand-on-surface hover:bg-brand-high transition-all duration-150 text-left"
+          className="flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[12.5px] text-fg-muted transition-colors duration-100 hover:bg-ink-800 hover:text-fg max-[900px]:justify-center max-[900px]:px-0"
         >
-          <Settings size={16} />
-          <span>Settings</span>
+          <Settings size={15} className="text-fg-faint" />
+          <span className="max-[900px]:hidden">Settings</span>
         </button>
         <button
           onClick={onOpenSupport}
           aria-label="Support"
           title="Support"
-          className="w-full flex items-center gap-3 px-3 py-2.5 rounded font-mono-label text-xs text-brand-on-surface-variant hover:text-brand-on-surface hover:bg-brand-high transition-all duration-150 text-left"
+          className="flex w-full items-center gap-2.5 rounded px-3 py-2 text-left text-[12.5px] text-fg-muted transition-colors duration-100 hover:bg-ink-800 hover:text-fg max-[900px]:justify-center max-[900px]:px-0"
         >
-          <HelpCircle size={16} />
-          <span>Support</span>
+          <HelpCircle size={15} className="text-fg-faint" />
+          <span className="max-[900px]:hidden">Support</span>
         </button>
+        <div className="mt-3 flex items-center justify-between px-3 pb-1 max-[900px]:hidden">
+          <span className="font-mono text-[9.5px] uppercase tracking-wider text-fg-faint">Northbound API v3 / v4</span>
+        </div>
       </div>
     </aside>
   );

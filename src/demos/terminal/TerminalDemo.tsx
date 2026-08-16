@@ -26,7 +26,7 @@ export default function TerminalDemo() {
             ['registry', 'REGISTRY', Database], ['installations', 'INSTALLATIONS', GitBranch], ['invocations', 'INVOCATIONS', Play], ['ledger', 'LEDGER', Activity],
           ] as const).map(([id, label, Icon]) => (
             <button key={id} onClick={() => setTab(id)} className={`w-full flex items-center gap-2 px-3 py-2 mb-1 text-left text-[11px] border-l-2 ${tab === id ? 'border-amber-300 bg-amber-300/10 text-amber-200' : 'border-transparent text-[#8e897e] hover:text-[#ddd8cc]'}`}>
-              <Icon size={13} /> {label}<span className="ml-auto text-[9px] text-[#5e5a51]">{id === 'registry' ? '06' : id === 'installations' ? '04' : '—'}</span>
+              <Icon size={13} /> {label}<span className="ml-auto text-[9px] text-[#5e5a51]">{id === 'registry' ? '06' : id === 'installations' ? '04' : '-'}</span>
             </button>
           ))}
           <div className="mt-8 border-t border-[#2e2c27] pt-4 text-[10px] text-[#6f6b62] leading-relaxed">STRICT MODE<br /><span className="text-emerald-400">NO FABRICATED EVENTS</span><br />NORTHBOUND API v4</div>

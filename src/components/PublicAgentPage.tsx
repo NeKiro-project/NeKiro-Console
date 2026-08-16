@@ -3,6 +3,7 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {NekiroApiClient, toPlatformErrorView} from '../api/nekiro';
 import type {PlatformErrorView, Workspace} from '../types';
 import PublicAgentInstallPanel from './PublicAgentInstallPanel';
+import {ErrorBanner} from './ui';
 
 export default function PublicAgentPage() {
   const ownerToken = import.meta.env.VITE_NEKIRO_OWNER_TOKEN;
@@ -31,16 +32,19 @@ export default function PublicAgentPage() {
     return () => { active = false; };
   }, [client, defaultWorkspaceID, hasOwnerContext]);
 
-  return <main className="min-h-screen bg-brand-bg text-brand-on-surface p-6 md:p-12">
-    <div className="max-w-4xl mx-auto space-y-5">
-      <header>
-        <div className="font-mono-label text-xs uppercase tracking-[0.25em] text-brand-primary">NeKiro Public Agent</div>
-        <h1 className="text-3xl font-bold mt-2">Review a shared Agent</h1>
-        <p className="text-sm text-brand-on-surface-variant mt-2">Resolve public trusted publication facts, then explicitly select one exact Release and its permissions.</p>
-      </header>
-      {workspaceError && <div className="border border-brand-error/25 rounded-lg p-3 text-sm text-brand-error">{workspaceError.message}</div>}
-      <PublicAgentInstallPanel client={client} workspace={workspace} initialUrl={initialURL} />
-      {!hasOwnerContext && <a href="/" className="inline-flex text-sm text-brand-primary underline">Open the authenticated Workspace Console</a>}
-    </div>
-  </main>;
+  return (
+    <main className="min-h-screen bg-ink-950 p-6 md:p-12">
+      <div className="app-grid" aria-hidden="true" />
+      <div className="relative mx-auto max-w-4xl space-y-5">
+        <header>
+          <div className="mono-label text-accent">NeKiro Public Agent</div>
+          <h1 className="mt-2 text-[26px] font-semibold tracking-tight text-fg">Review a shared Agent</h1>
+          <p className="mt-2 max-w-xl text-[13px] leading-relaxed text-fg-muted">Resolve public trusted publication facts, then explicitly select one exact Release and its permissions.</p>
+        </header>
+        {workspaceError && <ErrorBanner error={workspaceError} />}
+        <PublicAgentInstallPanel client={client} workspace={workspace} initialUrl={initialURL} />
+        {!hasOwnerContext && <a href="/" className="inline-flex text-[13px] text-accent-bright underline decoration-accent-line underline-offset-4">Open the authenticated Workspace Console</a>}
+      </div>
+    </main>
+  );
 }

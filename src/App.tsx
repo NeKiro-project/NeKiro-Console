@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {AnimatePresence, motion} from 'motion/react';
+import {AnimatePresence, motion, useReducedMotion} from 'motion/react';
 import {CheckCircle2, Cpu, HelpCircle, ShieldAlert, X} from 'lucide-react';
 
 import {mapCatalogEntry, NekiroApiClient, NekiroApiError, toPlatformErrorView, validateTrustedInstallation, type AgentCardV02, type AgentRelease} from './api/nekiro';
@@ -16,6 +16,8 @@ import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspa
 
 export default function App() {
   requireConsoleConfiguration(import.meta.env);
+  const reduceMotion = useReducedMotion();
+  const tabTransition = {duration: reduceMotion ? 0 : 0.14};
   const [activeTab, setActiveTab] = useState<'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger'>('registry');
   const [searchQuery, setSearchQuery] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -295,13 +297,8 @@ export default function App() {
   };
 
   return (
-    <div className="glass-app bg-brand-bg text-brand-on-surface font-sans h-screen w-screen overflow-hidden flex select-none relative">
-      <div className="mesh-bg-container">
-        <div className="mesh-blob blob1" />
-        <div className="mesh-blob blob2" />
-        <div className="mesh-blob blob3" />
-        <div className="mesh-blob blob4" />
-      </div>
+    <div className="relative h-screen w-screen select-none overflow-hidden bg-ink-950 font-sans text-fg">
+      <div className="app-grid" aria-hidden="true" />
 
       <Sidebar
         activeTab={activeTab}
@@ -328,10 +325,10 @@ export default function App() {
         apiConfigured={Boolean(import.meta.env.VITE_NEKIRO_API_BASE_URL && import.meta.env.VITE_NEKIRO_PROVIDER_ID && import.meta.env.VITE_NEKIRO_PROVIDER_TOKEN && import.meta.env.VITE_NEKIRO_OWNER_TOKEN && import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID)}
       />
 
-      <main className="ml-64 mt-16 w-[calc(100vw-256px)] h-[calc(100vh-64px)] overflow-y-auto bg-brand-bg p-7 relative">
+      <main className="relative z-10 ml-[232px] mt-14 h-[calc(100vh-56px)] w-[calc(100vw-232px)] overflow-y-auto p-7 max-[900px]:ml-16 max-[900px]:w-[calc(100vw-64px)] max-[900px]:p-4">
         <AnimatePresence mode="wait" initial={false}>
           {activeTab === 'registry' && (
-            <motion.div key="registry" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+            <motion.div key="registry" initial={{opacity: 0, y: 6}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -6}} transition={tabTransition} className="w-full h-full">
               <RegistryTab
                 agents={agents}
                 draftAgents={draftAgents}
@@ -348,7 +345,7 @@ export default function App() {
           )}
 
           {activeTab === 'trusted' && (
-            <motion.div key="trusted" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+            <motion.div key="trusted" initial={{opacity: 0, y: 6}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -6}} transition={tabTransition} className="w-full h-full">
               <TrustedPublicationTab
                 providerId={import.meta.env.VITE_NEKIRO_PROVIDER_ID ?? ''}
                 client={providerClient}
@@ -361,7 +358,7 @@ export default function App() {
           )}
 
           {activeTab === 'installations' && (
-            <motion.div key="installations" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+            <motion.div key="installations" initial={{opacity: 0, y: 6}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -6}} transition={tabTransition} className="w-full h-full">
               <InstallationsTab
                 workspace={workspace}
                 agents={agents}
@@ -380,13 +377,13 @@ export default function App() {
           )}
 
           {activeTab === 'invocations' && (
-            <motion.div key="invocations" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+            <motion.div key="invocations" initial={{opacity: 0, y: 6}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -6}} transition={tabTransition} className="w-full h-full">
               <InvocationsTab workspace={workspace} installations={installations} client={ownerClient} />
             </motion.div>
           )}
 
           {activeTab === 'ledger' && (
-            <motion.div key="ledger" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
+            <motion.div key="ledger" initial={{opacity: 0, y: 6}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -6}} transition={tabTransition} className="w-full h-full">
               <div key={workspace?.workspaceId ?? 'no-workspace'} className="contents"><LedgerTab workspace={workspace} client={ownerClient} /></div>
             </motion.div>
           )}
@@ -394,19 +391,19 @@ export default function App() {
       </main>
 
       {showSettings && (
-        <Overlay title="Control Plane Settings" icon={<Cpu size={22} />} onClose={() => setShowSettings(false)}>
-          <div className="space-y-3 text-sm text-brand-on-surface-variant">
-            <p>Base URL: <span className="font-mono-code text-brand-on-surface">{import.meta.env.VITE_NEKIRO_API_BASE_URL || 'not configured'}</span></p>
-            <p>Provider context: <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_PROVIDER_ID</span> + <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_PROVIDER_TOKEN</span></p>
-            <p>Workspace owner context: <span className="font-mono-code text-brand-on-surface">VITE_NEKIRO_OWNER_TOKEN</span> (credentials are never persisted in local storage)</p>
-            <p>Default Workspace: <span className="font-mono-code text-brand-on-surface">{import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID || 'manual selection'}</span></p>
+        <Overlay title="Control Plane Settings" icon={<Cpu size={20} />} onClose={() => setShowSettings(false)}>
+          <div className="divide-y divide-line">
+            <FactRow label="Base URL" value={import.meta.env.VITE_NEKIRO_API_BASE_URL || 'not configured'} />
+            <FactRow label="Provider context" value="VITE_NEKIRO_PROVIDER_ID + VITE_NEKIRO_PROVIDER_TOKEN" />
+            <FactRow label="Workspace owner context" value="VITE_NEKIRO_OWNER_TOKEN (credentials are never persisted in local storage)" />
+            <FactRow label="Default Workspace" value={import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID || 'manual selection'} />
           </div>
         </Overlay>
       )}
 
       {showSupport && (
-        <Overlay title="MVP Boundary" icon={<HelpCircle size={22} />} onClose={() => setShowSupport(false)}>
-          <div className="space-y-3 text-sm text-brand-on-surface-variant">
+        <Overlay title="MVP Boundary" icon={<HelpCircle size={20} />} onClose={() => setShowSupport(false)}>
+          <div className="space-y-3 text-[12.5px] leading-relaxed text-fg-muted">
             <p>Live surfaces: Registry, Workspace, Installations, Invocation Dispatch, and metadata-only Ledger through public Gateway routes.</p>
             <p>Runtime reads are Owner-authorized and Workspace-scoped. The Console never stores Agent secrets or fabricates Ledger events.</p>
           </div>
@@ -418,24 +415,33 @@ export default function App() {
 
 function Overlay({title, icon, children, onClose}: {title: string; icon: React.ReactNode; children: React.ReactNode; onClose: () => void}) {
   return (
-    <div className="fixed inset-0 bg-black/55 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <div className="bg-brand-low border border-brand-outline-variant rounded-xl shadow-2xl w-full max-w-lg overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-brand-outline-variant/60">
-          <div className="flex items-center gap-3 text-brand-primary">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+      <div className="panel w-full max-w-lg overflow-hidden bg-ink-900 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <div className="flex items-center gap-2.5 text-accent">
             {icon}
-            <h2 className="font-headline-md text-sm font-bold text-brand-on-surface">{title}</h2>
+            <h2 className="text-[14px] font-semibold text-fg">{title}</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-brand-high text-brand-on-surface-variant hover:text-brand-on-surface">
-            <X size={18} />
+          <button onClick={onClose} className="btn btn-ghost h-7 w-7 justify-center p-0">
+            <X size={16} />
           </button>
         </div>
         <div className="p-5">{children}</div>
-        <div className="px-5 py-3 border-t border-brand-outline-variant/40 flex items-center gap-2 text-xs text-brand-on-surface-variant">
-          <ShieldAlert size={14} />
+        <div className="flex items-center gap-2 border-t border-line px-5 py-2.5 font-mono text-[10.5px] uppercase tracking-wider text-fg-faint">
+          <ShieldAlert size={13} className="text-accent" />
           <span>Only public Gateway routes are called from the browser.</span>
-          <CheckCircle2 size={14} className="ml-auto text-green-400" />
+          <CheckCircle2 size={13} className="ml-auto text-ok" />
         </div>
       </div>
+    </div>
+  );
+}
+
+function FactRow({label, value}: {label: string; value: string}) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-2.5">
+      <span className="shrink-0 text-[11px] uppercase tracking-wider text-fg-faint">{label}</span>
+      <span className="min-w-0 truncate text-right font-mono text-[11.5px] text-fg">{value}</span>
     </div>
   );
 }

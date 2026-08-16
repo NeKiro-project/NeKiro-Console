@@ -1,9 +1,10 @@
 import {useEffect, useRef, useState} from 'react';
-import {BookOpen, GitBranch, LoaderCircle, Search, ShieldAlert} from 'lucide-react';
+import {BookOpen, GitBranch, LoaderCircle, Search} from 'lucide-react';
 
 import {NekiroApiClient, toPlatformErrorView, type InvocationDetailResponseV4, type TraceResponseV4} from '../api/nekiro';
 import {isCurrentRequest, nextRequestGeneration} from '../consolePolicy';
 import type {PlatformErrorView, Workspace} from '../types';
+import {ErrorBanner, PageHeader, SectionLabel, StatusBadge} from './ui';
 
 export default function LedgerTab({workspace, client}: {workspace: Workspace | null; client: NekiroApiClient}) {
   const [invocationId, setInvocationId] = useState('');
@@ -50,25 +51,49 @@ export default function LedgerTab({workspace, client}: {workspace: Workspace | n
   };
 
   return (
-    <div className="h-full flex flex-col gap-5">
-      <div>
-        <div className="font-mono-label text-[10px] uppercase tracking-[0.24em] text-brand-primary mb-2">Ledger / Metadata-only</div>
-        <h2 className="text-2xl font-bold text-brand-on-surface">Inspect recorded lineage</h2>
-        <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Reads are Workspace-scoped and Owner-authorized. Result payloads are never rendered from Ledger records.</p>
-      </div>
-      <div className="glass-split-grid grid grid-cols-[minmax(340px,0.8fr)_minmax(420px,1.2fr)] gap-5 flex-1 min-h-0">
-        <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-5 h-fit">
-          <div className="flex items-center gap-2 text-sm font-bold mb-4"><Search size={16} className="text-brand-primary" /> Read metadata</div>
-          <label htmlFor="ledger-invocation-id" className="block text-xs text-brand-on-surface-variant mb-1">Invocation ID</label>
-          <div className="flex gap-2"><input id="ledger-invocation-id" value={invocationId} onChange={(event) => setInvocationId(event.target.value)} disabled={loading} placeholder="inv-..." className="min-w-0 flex-1 rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none disabled:opacity-40" /><button disabled={!workspace || !invocationId || loading} onClick={() => void read('invocation')} className="rounded-lg border border-brand-outline-variant px-3 text-xs text-brand-on-surface hover:bg-brand-high disabled:opacity-40">Read</button></div>
-          <label htmlFor="ledger-trace-id" className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Trace ID</label>
-          <div className="flex gap-2"><input id="ledger-trace-id" value={traceId} onChange={(event) => setTraceId(event.target.value)} disabled={loading} placeholder="trace-..." className="min-w-0 flex-1 rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none disabled:opacity-40" /><button disabled={!workspace || !traceId || loading} onClick={() => void read('trace')} className="rounded-lg border border-brand-outline-variant px-3 text-xs text-brand-on-surface hover:bg-brand-high disabled:opacity-40">Read</button></div>
-          {loading && <div className="mt-4 flex items-center gap-2 text-xs text-brand-on-surface-variant"><LoaderCircle size={14} className="animate-spin" /> Reading Router Ledger...</div>}
-          {error && <div className="mt-4 rounded-lg border border-red-400/25 bg-red-400/10 p-3 text-xs text-red-200"><ShieldAlert size={14} className="inline mr-2" />{error.message}</div>}
+    <div className="flex h-full flex-col gap-4">
+      <PageHeader
+        eyebrow="Ledger / Metadata-only"
+        title="Inspect recorded lineage"
+        description="Reads are Workspace-scoped and Owner-authorized. Result payloads are never rendered from Ledger records."
+      />
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(340px,0.8fr)_minmax(420px,1.2fr)] gap-4 max-[1100px]:grid-cols-1">
+        <section className="panel h-fit p-4">
+          <div className="mb-4 flex items-center gap-2.5">
+            <Search size={15} className="text-accent" />
+            <span className="text-[13.5px] font-semibold text-fg">Read metadata</span>
+            {workspace && <span className="ml-auto font-mono text-[10px] text-fg-faint">{workspace.workspaceId}</span>}
+          </div>
+          <label htmlFor="ledger-invocation-id" className="mb-3 flex flex-col gap-1.5 text-[11px] uppercase tracking-wider text-fg-faint">
+            Invocation ID
+            <div className="flex gap-2">
+              <input aria-label="Invocation ID" id="ledger-invocation-id" value={invocationId} onChange={(event) => setInvocationId(event.target.value)} disabled={loading} placeholder="inv-..." className="field min-w-0 flex-1 font-mono text-[12px]" />
+              <button disabled={!workspace || !invocationId || loading} onClick={() => void read('invocation')} className="btn">Read</button>
+            </div>
+          </label>
+          <label htmlFor="ledger-trace-id" className="flex flex-col gap-1.5 text-[11px] uppercase tracking-wider text-fg-faint">
+            Trace ID
+            <div className="flex gap-2">
+              <input aria-label="Trace ID" id="ledger-trace-id" value={traceId} onChange={(event) => setTraceId(event.target.value)} disabled={loading} placeholder="trace-..." className="field min-w-0 flex-1 font-mono text-[12px]" />
+              <button disabled={!workspace || !traceId || loading} onClick={() => void read('trace')} className="btn">Read</button>
+            </div>
+          </label>
+          {loading && <div className="mt-4 flex items-center gap-2 font-mono text-[11.5px] text-fg-muted"><LoaderCircle size={13} className="animate-spin text-accent" /> Reading Router Ledger...</div>}
+          {error && <div className="mt-4"><ErrorBanner error={error} /></div>}
         </section>
-        <section className="bg-brand-low border border-brand-outline-variant rounded-xl overflow-hidden min-h-0 flex flex-col">
-          <div className="px-4 py-3 border-b border-brand-outline-variant/60 flex items-center gap-2"><BookOpen size={15} className="text-brand-primary" /><span className="text-xs font-bold">Ledger projection</span></div>
-          <div className="p-4 overflow-auto flex-1">{detail && <Detail detail={detail} />}{trace && <Trace trace={trace} />}{!detail && !trace && !loading && !error && <div className="h-full flex items-center justify-center text-sm text-brand-on-surface-variant">Enter an Invocation or Trace ID to inspect metadata.</div>}</div>
+        <section className="panel flex min-h-0 flex-col overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+            <BookOpen size={14} className="text-accent" />
+            <SectionLabel>Ledger projection</SectionLabel>
+            {(detail || trace) && <span className="ml-auto font-mono text-[10px] text-fg-faint">{detail ? 'invocation' : 'trace'}</span>}
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            {detail && <Detail detail={detail} />}
+            {trace && <Trace trace={trace} />}
+            {!detail && !trace && !loading && !error && (
+              <div className="flex h-full min-h-32 items-center justify-center font-mono text-[11px] uppercase tracking-wider text-fg-faint">Enter an Invocation or Trace ID to inspect metadata.</div>
+            )}
+          </div>
         </section>
       </div>
     </div>
@@ -76,13 +101,70 @@ export default function LedgerTab({workspace, client}: {workspace: Workspace | n
 }
 
 function Detail({detail}: {detail: InvocationDetailResponseV4}) {
-  return <div className="space-y-4"><Record record={detail.invocation} /><div className="text-xs font-semibold flex items-center gap-2"><GitBranch size={13} /> committed events</div>{detail.events.map((event) => <div key={event.eventId} className="rounded-lg border border-brand-outline-variant bg-brand-lowest p-3 text-xs"><div className="font-mono-code text-brand-primary">#{event.sequence} {event.type}</div><div className="mt-1 text-brand-on-surface-variant">{event.status} / {event.occurredAt}</div>{event.error && <div className="mt-1 text-red-200">{event.error.code}</div>}</div>)}</div>;
+  return (
+    <div className="space-y-4">
+      <Record record={detail.invocation} />
+      <div className="flex items-center gap-2">
+        <GitBranch size={13} className="text-fg-faint" />
+        <SectionLabel>committed events</SectionLabel>
+        <span className="ml-auto font-mono text-[10px] text-fg-faint">{detail.events.length}</span>
+      </div>
+      {detail.events.map((event) => (
+        <div key={event.eventId} className="rounded border border-line bg-ink-900 p-3">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[11.5px] text-accent-bright">#{event.sequence} {event.type}</span>
+            <span className="ml-auto font-mono text-[10px] text-fg-faint">{event.occurredAt}</span>
+          </div>
+          <div className="mt-1 text-[11.5px] text-fg-muted">{event.status}</div>
+          {event.error && <div className="mt-1 text-[12px] text-danger">{event.error.code}</div>}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function Trace({trace}: {trace: TraceResponseV4}) {
-  return <div className="space-y-3"><div className="text-xs text-brand-on-surface-variant">Trace <span className="font-mono-code text-brand-on-surface">{trace.traceId}</span> / {trace.invocations.length} invocation(s)</div>{trace.invocations.map((record) => <div key={record.invocationId}><Record record={record} /></div>)}</div>;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 text-[12px] text-fg-muted">
+        Trace <span className="font-mono text-[11.5px] text-accent-bright">{trace.traceId}</span>
+        <span className="ml-auto font-mono text-[10px] text-fg-faint">{trace.invocations.length} invocation(s)</span>
+      </div>
+      {trace.invocations.map((record) => <div key={record.invocationId}><Record record={record} /></div>)}
+    </div>
+  );
 }
 
 function Record({record}: {record: InvocationDetailResponseV4['invocation']}) {
-  return <div className="rounded-lg border border-brand-outline-variant bg-brand-lowest p-4"><div className="flex items-center justify-between"><span className="font-mono-code text-xs text-brand-primary">{record.invocationId}</span><span className="text-[10px] uppercase text-brand-on-surface-variant">{record.status}</span></div><div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-brand-on-surface-variant"><span>Root task <b className="font-mono-code text-brand-on-surface">{record.rootTaskId}</b></span><span>Parent <b className="font-mono-code text-brand-on-surface">{record.parentInvocationId ?? 'root'}</b></span><span>Caller <b className="font-mono-code text-brand-on-surface">{record.caller.type}:{record.caller.id}</b></span><span>Workspace <b className="font-mono-code text-brand-on-surface">{record.workspaceId}</b></span><span>Agent <b className="font-mono-code text-brand-on-surface">{record.targetAgentId}</b></span><span>Card <b className="font-mono-code text-brand-on-surface">{record.agentCardVersion}</b></span><span>Release <b className="font-mono-code text-brand-on-surface">{record.agentReleaseId}</b></span><span>Card digest <b className="font-mono-code text-brand-on-surface">{record.agentCardDigest}</b></span><span>Capability <b className="font-mono-code text-brand-on-surface">{record.capability}</b></span><span>Latency <b className="font-mono-code text-brand-on-surface">{record.latencyMs === undefined ? 'n/a' : record.latencyMs + ' ms'}</b></span><span>Trace <b className="font-mono-code text-brand-on-surface">{record.traceId}</b></span><span>Created <b className="font-mono-code text-brand-on-surface">{record.createdAt}</b></span>{record.errorCode && <span>Error <b className="font-mono-code text-red-200">{record.errorCode}</b></span>}</div></div>;
+  return (
+    <div className="rounded border border-line bg-ink-900 p-3.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0 truncate font-mono text-[12px] text-accent-bright">{record.invocationId}</span>
+        <StatusBadge status={record.status} />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11.5px] text-fg-muted">
+        <RecordFact label="Root task" value={record.rootTaskId} />
+        <RecordFact label="Parent" value={record.parentInvocationId ?? 'root'} />
+        <RecordFact label="Caller" value={`${record.caller.type}:${record.caller.id}`} />
+        <RecordFact label="Workspace" value={record.workspaceId} />
+        <RecordFact label="Agent" value={record.targetAgentId} />
+        <RecordFact label="Card" value={record.agentCardVersion} />
+        <RecordFact label="Release" value={record.agentReleaseId} />
+        <RecordFact label="Card digest" value={record.agentCardDigest} />
+        <RecordFact label="Capability" value={record.capability} />
+        <RecordFact label="Latency" value={record.latencyMs === undefined ? 'n/a' : record.latencyMs + ' ms'} />
+        <RecordFact label="Trace" value={record.traceId} />
+        <RecordFact label="Created" value={record.createdAt} />
+        {record.errorCode && <RecordFact label="Error" value={record.errorCode} danger />}
+      </div>
+    </div>
+  );
+}
+
+function RecordFact({label, value, danger = false}: {label: string; value: string; danger?: boolean}) {
+  return (
+    <span className="min-w-0">
+      <span className="text-fg-faint">{label}</span> <b className={`break-all font-mono font-medium ${danger ? 'text-danger' : 'text-fg'}`}>{value}</b>
+    </span>
+  );
 }
