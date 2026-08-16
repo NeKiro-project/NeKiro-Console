@@ -1,9 +1,10 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
-import {AlertTriangle, CheckCircle2, Copy, ExternalLink, Loader2, RefreshCw, ShieldAlert, ShieldCheck} from 'lucide-react';
+import {CheckCircle2, ExternalLink, Loader2, RefreshCw, ShieldAlert, ShieldCheck} from 'lucide-react';
 
 import {NekiroApiError, toPlatformErrorView, type AgentRelease, type EndpointBinding, type NekiroApiClient, type VerificationChallenge} from '../api/nekiro';
 import {agentKey, canEndpointChallenge, canReleaseAction, isCurrentRequest, nextRequestGeneration, shouldClearEndpointChallenge} from '../consolePolicy';
 import type {Agent, PlatformErrorView} from '../types';
+import {CopyButton, ErrorBanner, Fact, PageHeader, SectionLabel, StatusBadge} from './ui';
 
 interface TrustedPublicationTabProps {
   providerId: string;
@@ -238,22 +239,22 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
         : action === 'suspend'
           ? await client.suspendAgentRelease(release.releaseId)
           : await client.revokeAgentRelease(release.releaseId);
-     if (!isCurrentRequest(generation, requestGeneration.current)) return;
-      try {
-        const authoritative = await client.getAgentRelease(value.releaseId);
-        if (!isCurrentRequest(generation, requestGeneration.current)) return;
-        assertReleaseMatches(authoritative, providerId, selectedAgent, binding?.bindingId ?? authoritative.endpointBindingId);
-        setRelease(authoritative);
-        setReleaseId(authoritative.releaseId);
+    if (!isCurrentRequest(generation, requestGeneration.current)) return;
+    try {
+      const authoritative = await client.getAgentRelease(value.releaseId);
+      if (!isCurrentRequest(generation, requestGeneration.current)) return;
+      assertReleaseMatches(authoritative, providerId, selectedAgent, binding?.bindingId ?? authoritative.endpointBindingId);
+      setRelease(authoritative);
+      setReleaseId(authoritative.releaseId);
+      setConfirmAction(null);
+    } catch (readBackError) {
+      if (isCurrentRequest(generation, requestGeneration.current)) {
+        setRelease(null);
+        setReleaseId('');
         setConfirmAction(null);
-      } catch (readBackError) {
-        if (isCurrentRequest(generation, requestGeneration.current)) {
-          setRelease(null);
-          setReleaseId('');
-          setConfirmAction(null);
-        }
-        throw readBackError;
       }
+      throw readBackError;
+    }
   });
 
   const canIssueChallenge = canEndpointChallenge(binding?.verificationStatus);
@@ -265,96 +266,116 @@ export default function TrustedPublicationTab({providerId, client, agents, draft
   const canRevoke = canReleaseAction(release?.state, 'revoke');
 
   return (
-    <div className="h-full flex flex-col gap-5">
-      <div className="glass-page-header flex items-start justify-between gap-4">
-        <div>
-          <div className="font-mono-label text-[10px] uppercase tracking-[0.24em] text-brand-primary mb-2">Trust boundary</div>
-          <h2 className="text-2xl font-bold text-brand-on-surface">Trusted Publication</h2>
-          <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Prove endpoint ownership, publish an immutable Release, and hand its exact identity to a Workspace owner.</p>
-        </div>
-        <button onClick={onRefresh} disabled={Boolean(operation)} className="px-3 py-2 rounded bg-brand-container border border-brand-outline-variant text-xs text-brand-on-surface-variant hover:text-brand-on-surface flex items-center gap-2 disabled:opacity-50">
-          <RefreshCw size={14} /> Refresh Cards
+    <div className="flex h-full flex-col gap-4">
+      <PageHeader
+        eyebrow="Trust boundary"
+        title="Trusted Publication"
+        description="Prove endpoint ownership, publish an immutable Release, and hand its exact identity to a Workspace owner."
+      >
+        <button onClick={onRefresh} disabled={Boolean(operation)} className="btn">
+          <RefreshCw size={13} /> Refresh Cards
         </button>
-      </div>
+      </PageHeader>
 
       <ErrorBanner error={error} />
       <ErrorBanner error={providerCatalogError} />
 
-      <div className="grid grid-cols-[minmax(280px,0.7fr)_minmax(520px,1.3fr)] gap-5 min-h-0 flex-1">
-        <div className="bg-brand-low border border-brand-outline-variant rounded-xl overflow-hidden min-h-0 flex flex-col">
-          <div className="px-4 py-3 border-b border-brand-outline-variant/60">
-            <div className="text-xs font-bold text-brand-on-surface">Registered Agent Cards</div>
-            <div className="text-[11px] text-brand-on-surface-variant mt-1">Catalog status does not grant trust.</div>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,0.7fr)_minmax(520px,1.3fr)] gap-4 max-[1100px]:grid-cols-1">
+        {/* Agent list */}
+        <div className="panel flex min-h-0 flex-col overflow-hidden">
+          <div className="border-b border-line px-4 py-2.5">
+            <SectionLabel>Registered Agent Cards</SectionLabel>
+            <div className="mt-1 text-[11px] text-fg-faint">Catalog status does not grant trust.</div>
           </div>
-          <div className="overflow-y-auto divide-y divide-brand-outline-variant/40">
+          <div className="min-h-0 flex-1 divide-y divide-line overflow-y-auto">
             {availableAgents.length === 0 ? (
-              <div className="p-6 text-center text-sm text-brand-on-surface-variant">Register an Agent Card before creating a Binding.</div>
-            ) : availableAgents.map((agent) => (
-              <button key={agentKey(agent)} onClick={() => selectAgent(agentKey(agent))} className={'w-full text-left p-4 hover:bg-brand-container ' + (selectedAgent && agentKey(selectedAgent) === agentKey(agent) ? 'bg-brand-primary-container/20' : '')}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-brand-on-surface">{agent.name}</div>
-                    <div className="font-mono-code text-[11px] text-brand-on-surface-variant mt-1">{agent.id} @ {agent.version}</div>
-                  </div>
-                  <span className="text-[10px] uppercase border border-brand-outline-variant rounded px-2 py-0.5 text-brand-on-surface-variant">{agent.status}</span>
+              <div className="p-5 text-center text-[12px] text-fg-faint">Register an Agent Card before creating a Binding.</div>
+            ) : (
+              availableAgents.map((agent) => (
+                <div key={agentKey(agent)}>
+                  <button
+                    onClick={() => selectAgent(agentKey(agent))}
+                    className={`w-full px-4 py-3 text-left transition-colors duration-100 ${selectedAgent && agentKey(selectedAgent) === agentKey(agent) ? 'bg-accent-soft' : 'hover:bg-ink-800/70'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className={`truncate text-[13px] ${selectedAgent && agentKey(selectedAgent) === agentKey(agent) ? 'font-medium text-accent-bright' : 'text-fg'}`}>{agent.name}</div>
+                        <div className="mt-0.5 truncate font-mono text-[10.5px] text-fg-faint">
+                          <span className="text-accent-bright">{agent.id}</span> <span>@ {agent.version}</span>
+                        </div>
+                      </div>
+                      <StatusBadge status={agent.status} />
+                    </div>
+                  </button>
                 </div>
-              </button>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
-        <div className="min-h-0 overflow-y-auto space-y-5">
-          <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-4">
-            <SectionTitle icon={<ShieldCheck size={16} />} title="1. Endpoint Binding" detail={selectedAgent ? `${selectedAgent.id} @ ${selectedAgent.version}` : 'Select an Agent Card'} />
-            <div className="grid grid-cols-2 gap-3 mt-4">
+        {/* Workflow */}
+        <div className="min-h-0 space-y-4 overflow-y-auto">
+          <section className="panel p-4">
+            <SectionTitle icon={<ShieldCheck size={15} />} title="1. Endpoint Binding" detail={selectedAgent ? `${selectedAgent.id} @ ${selectedAgent.version}` : 'Select an Agent Card'} />
+            <div className="mt-4 grid grid-cols-2 gap-3">
               <Field label="Provider ID" value={providerId} readOnly />
               <Field label="Agent endpoint" value={endpoint} onChange={setEndpoint} placeholder="https://agent.example/a2a" />
             </div>
-            <div className="flex flex-wrap gap-2 mt-4">
-              <ActionButton label="Create Binding" onClick={createBinding} disabled={!selectedAgent || !endpoint || Boolean(operation)} />
+            <div className="mt-4 flex flex-wrap gap-2">
+              <ActionButton label="Create Binding" onClick={createBinding} disabled={!selectedAgent || !endpoint || Boolean(operation)} primary />
               <ActionButton label="Read Binding" onClick={readBinding} disabled={!bindingId || Boolean(operation)} />
             </div>
             {binding && <BindingFacts binding={binding} />}
           </section>
 
-          <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-4">
-            <SectionTitle icon={<ExternalLink size={16} />} title="2. Endpoint Challenge" detail="The proof is shown once and kept in component memory." />
-            <div className="flex flex-wrap gap-2 mt-4">
-              <ActionButton label="Issue Challenge" onClick={issueChallenge} disabled={!canIssueChallenge || Boolean(operation)} />
-              <ActionButton label="Complete Verification" onClick={completeChallenge} disabled={!canCompleteChallenge || Boolean(operation)} />
+          <section className="panel p-4">
+            <SectionTitle icon={<ExternalLink size={15} />} title="2. Endpoint Challenge" detail="The proof is shown once and kept in component memory." />
+            <div className="mt-4 flex flex-wrap gap-2">
+              <ActionButton label="Issue Challenge" onClick={issueChallenge} disabled={!canIssueChallenge || Boolean(operation)} primary />
+              <ActionButton label="Complete Verification" onClick={completeChallenge} disabled={!canCompleteChallenge || Boolean(operation)} primary />
             </div>
             {challenge && (
-              <div className="mt-4 border border-brand-primary/30 bg-brand-primary-container/10 rounded-lg p-3 text-xs text-brand-on-surface-variant space-y-2">
-                <div className="flex items-center gap-2 text-brand-primary font-semibold"><ShieldAlert size={14} /> Serve this exact proof at the challenge URL, then complete once.</div>
+              <div className="mt-4 space-y-2.5 rounded border border-accent-line/60 bg-accent-soft/60 p-3.5">
+                <div className="flex items-center gap-2 text-[12px] font-medium text-accent-bright">
+                  <ShieldAlert size={14} /> Serve this exact proof at the challenge URL, then complete once.
+                </div>
                 <Fact label="Challenge ID" value={challenge.challengeId} />
                 <Fact label="Challenge URL" value={challenge.challengeUrl} />
-                <div className="flex items-center gap-2"><span className="font-mono-label text-[10px] uppercase text-brand-on-surface-variant">Proof</span><code className="font-mono-code text-brand-on-surface break-all">{challenge.proof}</code><Copy size={13} /></div>
+                <div className="flex items-start gap-2">
+                  <span className="mono-label mt-1">Proof</span>
+                  <code className="min-w-0 flex-1 break-all font-mono text-[11.5px] text-accent-bright">{challenge.proof}</code>
+                  <CopyButton text={challenge.proof} />
+                </div>
                 <Fact label="Expires" value={challenge.expiresAt} />
               </div>
             )}
           </section>
 
-          <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-4">
-            <SectionTitle icon={<CheckCircle2 size={16} />} title="3. Immutable Release" detail="Every action is followed by a server read." />
-            <div className="grid grid-cols-[1fr_auto] gap-3 mt-4">
+          <section className="panel p-4">
+            <SectionTitle icon={<CheckCircle2 size={15} />} title="3. Immutable Release" detail="Every action is followed by a server read." />
+            <div className="mt-4 grid grid-cols-[1fr_auto] items-end gap-3">
               <Field label="Release ID handoff" value={releaseId} onChange={setReleaseId} placeholder="release-id" />
-              <div className="flex items-end"><ActionButton label="Read" onClick={readRelease} disabled={!releaseId || Boolean(operation)} /></div>
+              <ActionButton label="Read" onClick={readRelease} disabled={!releaseId || Boolean(operation)} />
             </div>
-            <div className="flex flex-wrap gap-2 mt-4">
-              <ActionButton label="Create Release" onClick={createRelease} disabled={!canCreateRelease || Boolean(operation)} />
-              <ActionButton label="Verify" onClick={() => releaseAction('verify')} disabled={!canVerify || Boolean(operation)} />
-              <ActionButton label="Publish" onClick={() => releaseAction('publish')} disabled={!canPublish || Boolean(operation)} />
+            <div className="mt-4 flex flex-wrap gap-2">
+              <ActionButton label="Create Release" onClick={createRelease} disabled={!canCreateRelease || Boolean(operation)} primary />
+              <ActionButton label="Verify" onClick={() => releaseAction('verify')} disabled={!canVerify || Boolean(operation)} primary />
+              <ActionButton label="Publish" onClick={() => releaseAction('publish')} disabled={!canPublish || Boolean(operation)} primary />
               <ActionButton label="Refresh" onClick={refreshRelease} disabled={!release || Boolean(operation)} />
               <ActionButton label="Suspend" onClick={() => setConfirmAction('suspend')} disabled={!canSuspend || Boolean(operation)} danger />
               <ActionButton label="Revoke" onClick={() => setConfirmAction('revoke')} disabled={!canRevoke || Boolean(operation)} danger />
             </div>
-            {operation && <div className="flex items-center gap-2 mt-3 text-xs text-brand-on-surface-variant"><Loader2 size={13} className="animate-spin" /> {operation} in progress</div>}
+            {operation && (
+              <div className="mt-3 flex items-center gap-2 font-mono text-[11px] text-fg-muted">
+                <Loader2 size={12} className="animate-spin text-accent" /> {operation} in progress
+              </div>
+            )}
             {release && <ReleaseFacts release={release} />}
             {confirmAction && (
-              <div className="mt-4 border border-brand-error/30 bg-brand-error-container/10 rounded-lg p-3 text-xs text-brand-on-surface-variant">
-                <div className="font-semibold text-brand-error">Confirm {confirmAction} of {release?.releaseId}</div>
-                <p className="mt-1">This is a server-owned lifecycle transition. Recovery does not republish or restore this Release in place.</p>
-                <div className="flex gap-2 mt-3">
+              <div className="mt-4 rounded border border-danger/30 bg-danger-soft p-3.5">
+                <div className="text-[12.5px] font-semibold text-danger">Confirm {confirmAction} of <span className="font-mono">{release?.releaseId}</span></div>
+                <p className="mt-1 text-[12px] leading-relaxed text-fg-muted">This is a server-owned lifecycle transition. Recovery does not republish or restore this Release in place.</p>
+                <div className="mt-3 flex gap-2">
                   <ActionButton label={`Confirm ${confirmAction}`} onClick={() => releaseAction(confirmAction)} disabled={Boolean(operation)} danger />
                   <ActionButton label="Cancel" onClick={() => setConfirmAction(null)} disabled={Boolean(operation)} />
                 </div>
@@ -390,30 +411,55 @@ function dedupeAgents(values: Agent[]): Agent[] {
 }
 
 function SectionTitle({icon, title, detail}: {icon: React.ReactNode; title: string; detail: string}) {
-  return <div className="flex items-start gap-2"><span className="text-brand-primary mt-0.5">{icon}</span><div><div className="text-sm font-bold text-brand-on-surface">{title}</div><div className="text-xs text-brand-on-surface-variant mt-1">{detail}</div></div></div>;
+  return (
+    <div className="flex items-start gap-2.5">
+      <span className="mt-0.5 text-accent">{icon}</span>
+      <div>
+        <div className="text-[13.5px] font-semibold text-fg">{title}</div>
+        <div className="mt-0.5 font-mono text-[11px] text-fg-faint">{detail}</div>
+      </div>
+    </div>
+  );
 }
 
 function Field({label, value, onChange, placeholder, readOnly}: {label: string; value: string; onChange?: (value: string) => void; placeholder?: string; readOnly?: boolean}) {
-  return <label className="flex flex-col gap-1 text-xs text-brand-on-surface-variant">{label}<input value={value} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} readOnly={readOnly} className="bg-brand-lowest border border-brand-outline-variant rounded px-3 py-2 text-brand-on-surface outline-none read-only:opacity-70" /></label>;
+  return (
+    <label className="flex min-w-0 flex-col gap-1.5 text-[11px] uppercase tracking-wider text-fg-faint">
+      {label}
+      <input aria-label={label} value={value} onChange={(event) => onChange?.(event.target.value)} placeholder={placeholder} readOnly={readOnly} className="field font-mono text-[12px] read-only:opacity-70" />
+    </label>
+  );
 }
 
-function ActionButton({label, onClick, disabled, danger}: {label: string; onClick: () => void; disabled?: boolean; danger?: boolean}) {
-  return <button type="button" onClick={onClick} disabled={disabled} className={'px-3 py-1.5 rounded border text-xs flex items-center gap-1.5 disabled:opacity-40 ' + (danger ? 'border-brand-error/30 text-brand-error bg-brand-error-container/10' : 'border-brand-outline-variant bg-brand-container text-brand-on-surface-variant hover:text-brand-on-surface')}>{label}</button>;
+function ActionButton({label, onClick, disabled, danger = false, primary = false}: {label: string; onClick: () => void; disabled?: boolean; danger?: boolean; primary?: boolean}) {
+  return <button type="button" onClick={onClick} disabled={disabled} className={`btn ${danger ? 'btn-danger' : primary ? 'btn-primary' : ''}`}>{label}</button>;
 }
 
 function BindingFacts({binding}: {binding: EndpointBinding}) {
-  return <div className="grid grid-cols-3 gap-2 mt-4 text-xs"><Fact label="Binding" value={binding.bindingId} /><Fact label="Status" value={binding.verificationStatus} /><Fact label="Endpoint" value={binding.endpoint} /><Fact label="Method" value={binding.verificationMethod} /><Fact label="Evidence" value={binding.verificationEvidenceDigest ?? 'not available'} /><Fact label="Updated" value={binding.updatedAt} /></div>;
+  return (
+    <div className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-3">
+      <Fact label="Binding" value={binding.bindingId} />
+      <Fact label="Status" value={binding.verificationStatus} />
+      <Fact label="Endpoint" value={binding.endpoint} />
+      <Fact label="Method" value={binding.verificationMethod} />
+      <Fact label="Evidence" value={binding.verificationEvidenceDigest ?? 'not available'} />
+      <Fact label="Updated" value={binding.updatedAt} />
+    </div>
+  );
 }
 
 function ReleaseFacts({release}: {release: AgentRelease}) {
-  return <div className="grid grid-cols-3 gap-2 mt-4 text-xs"><Fact label="Release" value={release.releaseId} /><Fact label="State" value={release.state} /><Fact label="Card digest" value={release.cardDigest} /><Fact label="Binding" value={release.endpointBindingId} /><Fact label="Origin" value={release.endpointOrigin} /><Fact label="Path" value={release.endpointPath} /><Fact label="Method" value={release.verificationMethod} /><Fact label="Evidence" value={release.verificationEvidenceDigest ?? 'not available'} /><Fact label="Updated" value={release.updatedAt} /></div>;
-}
-
-function Fact({label, value}: {label: string; value: string}) {
-  return <div className="bg-brand-lowest border border-brand-outline-variant rounded p-2 min-w-0"><div className="text-[10px] uppercase tracking-wider text-brand-on-surface-variant">{label}</div><div className="font-mono-code text-[11px] text-brand-on-surface mt-1 break-all">{value}</div></div>;
-}
-
-function ErrorBanner({error}: {error: PlatformErrorView | null}) {
-  if (!error) return null;
-  return <div className="border border-brand-error/25 bg-brand-error-container/10 rounded-lg p-3 flex items-start gap-3 text-sm text-brand-error"><AlertTriangle size={16} className="mt-0.5" /><div><div className="font-semibold">{error.code ?? 'ERROR'} / HTTP {error.status}</div><div className="text-brand-on-surface-variant mt-1">{error.message}</div>{error.traceId && <div className="font-mono-code text-[11px] mt-1">traceId: {error.traceId}</div>}</div></div>;
+  return (
+    <div className="mt-4 grid grid-cols-3 gap-x-3 gap-y-1 border-t border-line pt-3">
+      <Fact label="Release" value={release.releaseId} />
+      <Fact label="State" value={release.state} />
+      <Fact label="Card digest" value={release.cardDigest} />
+      <Fact label="Binding" value={release.endpointBindingId} />
+      <Fact label="Origin" value={release.endpointOrigin} />
+      <Fact label="Path" value={release.endpointPath} />
+      <Fact label="Method" value={release.verificationMethod} />
+      <Fact label="Evidence" value={release.verificationEvidenceDigest ?? 'not available'} />
+      <Fact label="Updated" value={release.updatedAt} />
+    </div>
+  );
 }

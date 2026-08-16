@@ -4,6 +4,7 @@ import {Activity, CheckCircle2, LoaderCircle, Play, Radio, ShieldAlert} from 'lu
 import {NekiroApiClient, toPlatformErrorView, type InvocationResultStreamEventV2} from '../api/nekiro';
 import {isCurrentRequest, isTrustedEnabledInstallation, nextRequestGeneration} from '../consolePolicy';
 import type {Installation, PlatformErrorView, Workspace} from '../types';
+import {ErrorBanner, PageHeader, SectionLabel, StatusBadge} from './ui';
 
 interface InvocationsTabProps {
   workspace: Workspace | null;
@@ -92,13 +93,13 @@ export default function InvocationsTab({workspace, installations, client}: Invoc
   };
 
   return (
-    <div className="h-full flex flex-col gap-5">
-      <div>
-        <div className="font-mono-label text-[10px] uppercase tracking-[0.24em] text-brand-primary mb-2">Invocations / Owner</div>
-        <h2 className="text-2xl font-bold text-brand-on-surface">Invoke an installed Agent</h2>
-        <p className="text-sm text-brand-on-surface-variant mt-1 max-w-3xl">Requests use Gateway v4. JSON and SSE responses are validated for correlation and terminal semantics before display.</p>
-      </div>
-      <div className="glass-split-grid grid grid-cols-[minmax(340px,0.85fr)_minmax(420px,1.15fr)] gap-5 flex-1 min-h-0">
+    <div className="flex h-full flex-col gap-4">
+      <PageHeader
+        eyebrow="Invocations / Owner"
+        title="Invoke an installed Agent"
+        description="Requests use Gateway v4. JSON and SSE responses are validated for correlation and terminal semantics before display."
+      />
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(340px,0.85fr)_minmax(420px,1.15fr)] gap-4 max-[1100px]:grid-cols-1">
         <DispatchForm
           workspace={workspace}
           enabled={enabled}
@@ -134,39 +135,79 @@ function DispatchForm({workspace, enabled, installationId, setInstallationId, ca
   onSubmit: () => void;
 }) {
   return (
-    <section className="bg-brand-low border border-brand-outline-variant rounded-xl p-5 h-fit">
-      <div className="flex items-center gap-2 text-sm font-bold mb-4"><Play size={16} className="text-brand-primary" /> Dispatch request</div>
-      <label htmlFor="invocation-installation" className="block text-xs text-brand-on-surface-variant mb-1">Installed Agent</label>
-      <select id="invocation-installation" value={installationId} onChange={(event) => setInstallationId(event.target.value)} disabled={loading} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none disabled:opacity-40">
-        <option value="">Select enabled installation</option>
-        {enabled.map((item) => <option key={item.installationId} value={item.installationId}>{item.agentId} @ {item.installedVersion} / {item.installedReleaseId}</option>)}
-      </select>
-      <label htmlFor="invocation-capability" className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Capability</label>
-      <input id="invocation-capability" value={capability} onChange={(event) => setCapability(event.target.value)} disabled={loading} placeholder="Enter declared capability" className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 text-sm text-brand-on-surface outline-none disabled:opacity-40" />
-      <label htmlFor="invocation-input" className="block text-xs text-brand-on-surface-variant mt-4 mb-1">Input JSON</label>
-      <textarea id="invocation-input" value={input} onChange={(event) => setInput(event.target.value)} disabled={loading} rows={7} className="w-full rounded-lg border border-brand-outline-variant bg-brand-lowest px-3 py-2 font-mono-code text-xs text-brand-on-surface outline-none resize-y disabled:opacity-40" />
-      <label htmlFor="invocation-stream" className="flex items-center gap-2 mt-3 text-xs text-brand-on-surface-variant"><input id="invocation-stream" type="checkbox" checked={stream} onChange={(event) => setStream(event.target.checked)} disabled={loading} /> Stream result over SSE</label>
-      <button disabled={loading || !workspace || !installationId || !capability} onClick={onSubmit} className="mt-4 w-full rounded-lg bg-brand-primary px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40">{loading ? 'Invoking...' : 'Invoke'}</button>
-      {!workspace && <p className="mt-3 text-xs text-amber-300">Select the active Workspace before invoking.</p>}
+    <section className="panel h-fit p-4">
+      <div className="mb-4 flex items-center gap-2.5">
+        <Play size={15} className="text-accent" />
+        <span className="text-[13.5px] font-semibold text-fg">Dispatch request</span>
+        {workspace && <span className="ml-auto font-mono text-[10px] text-fg-faint">{workspace.workspaceId}</span>}
+      </div>
+      <label htmlFor="invocation-installation" className="mb-3 flex flex-col gap-1.5 text-[11px] uppercase tracking-wider text-fg-faint">
+        Installed Agent
+        <select aria-label="Installed Agent" id="invocation-installation" value={installationId} onChange={(event) => setInstallationId(event.target.value)} disabled={loading} className="field font-mono text-[12px]">
+          <option value="">Select enabled installation</option>
+          {enabled.map((item) => <option key={item.installationId} value={item.installationId}>{item.agentId} @ {item.installedVersion} / {item.installedReleaseId}</option>)}
+        </select>
+      </label>
+      <label htmlFor="invocation-capability" className="mb-3 flex flex-col gap-1.5 text-[11px] uppercase tracking-wider text-fg-faint">
+        Capability
+        <input id="invocation-capability" value={capability} onChange={(event) => setCapability(event.target.value)} disabled={loading} placeholder="Enter declared capability" className="field font-mono text-[12px]" />
+      </label>
+      <label htmlFor="invocation-input" className="mb-3 flex flex-col gap-1.5 text-[11px] uppercase tracking-wider text-fg-faint">
+        Input JSON
+        <textarea aria-label="Input JSON" id="invocation-input" value={input} onChange={(event) => setInput(event.target.value)} disabled={loading} rows={7} className="field resize-y font-mono text-[11.5px] leading-relaxed" />
+      </label>
+      <label htmlFor="invocation-stream" className="flex cursor-pointer items-center gap-2.5 text-[12.5px] text-fg-muted">
+        <input id="invocation-stream" type="checkbox" checked={stream} onChange={(event) => setStream(event.target.checked)} disabled={loading} className="h-3.5 w-3.5 accent-sky-400" />
+        Stream result over SSE
+      </label>
+      <button disabled={loading || !workspace || !installationId || !capability} onClick={onSubmit} className="btn btn-primary mt-4 h-8 w-full justify-center">
+        {loading ? 'Invoking...' : 'Invoke'}
+      </button>
+      {!workspace && <p className="mt-3 text-[12px] text-warn">Select the active Workspace before invoking.</p>}
     </section>
   );
 }
 
 function ResponsePanel({stream, loading, result, events, error}: {stream: boolean; loading: boolean; result: unknown; events: InvocationResultStreamEventV2[]; error: PlatformErrorView | null}) {
   return (
-    <section className="bg-brand-low border border-brand-outline-variant rounded-xl overflow-hidden min-h-0 flex flex-col">
-      <div className="px-4 py-3 border-b border-brand-outline-variant/60 flex items-center gap-2"><Activity size={15} className="text-brand-primary" /><span className="text-xs font-bold">Gateway response</span>{stream && <span className="ml-auto flex items-center gap-1 text-[10px] text-amber-300"><Radio size={12} /> SSE</span>}</div>
-      <div className="p-4 overflow-auto flex-1">
-        {error && <div className="mb-4 rounded-lg border border-red-400/25 bg-red-400/10 p-3 text-xs text-red-200"><ShieldAlert size={14} className="inline mr-2" />{error.message}{error.traceId && <span className="block mt-1 font-mono-code text-[10px]">trace {error.traceId}</span>}{error.invocationId && <span className="block mt-1 font-mono-code text-[10px]">invocation {error.invocationId}</span>}{error.rootTaskId && <span className="block mt-1 font-mono-code text-[10px]">root task {error.rootTaskId}</span>}</div>}
-        {loading && <div className="flex items-center gap-2 text-xs text-brand-on-surface-variant"><LoaderCircle size={14} className="animate-spin" /> Waiting for Router...</div>}
+    <section className="panel flex min-h-0 flex-col overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+        <Activity size={14} className="text-accent" />
+        <SectionLabel>Gateway response</SectionLabel>
+        {stream && (
+          <span className="ml-auto flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-warn">
+            <Radio size={11} /> SSE
+          </span>
+        )}
+        {loading && <LoaderCircle size={13} className="animate-spin text-accent" />}
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        {error && <div className="mb-4"><ErrorBanner error={error} /></div>}
+        {loading && <div className="mb-3 flex items-center gap-2 font-mono text-[11.5px] text-fg-muted"><LoaderCircle size={13} className="animate-spin text-accent" /> Waiting for Router...</div>}
         {result !== null && <JsonBlock value={result} />}
-        {events.length > 0 && <div className="space-y-2">{events.map((event) => <div key={event.sequence} className="rounded-lg border border-brand-outline-variant bg-brand-lowest p-3 text-xs"><div className="flex items-center gap-2"><CheckCircle2 size={13} className={event.type === 'completed' ? 'text-emerald-300' : 'text-brand-primary'} /><span className="font-mono-code text-brand-primary">#{event.sequence} {event.type}</span><span className="ml-auto text-brand-on-surface-variant">{event.status}</span></div>{event.type === 'chunk' && <pre className="mt-2 whitespace-pre-wrap font-mono-code text-[11px] text-brand-on-surface-variant">{JSON.stringify(event.chunk, null, 2)}</pre>}{event.error && <div className="mt-2 text-red-200">{event.error.code}: {event.error.message}</div>}</div>)}</div>}
-        {!loading && !result && events.length === 0 && !error && <div className="h-full flex items-center justify-center text-sm text-brand-on-surface-variant">No invocation submitted.</div>}
+        {events.length > 0 && (
+          <div className="space-y-1.5">
+            {events.map((event) => (
+              <div key={event.sequence} className="rounded border border-line bg-ink-900 p-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={13} className={event.type === 'completed' ? 'text-ok' : 'text-accent'} />
+                  <span className="font-mono text-[11.5px] text-accent-bright">#{event.sequence} {event.type}</span>
+                  <StatusBadge status={event.status} />
+                </div>
+                {event.type === 'chunk' && event.chunk !== undefined && <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-fg-muted">{JSON.stringify(event.chunk, null, 2)}</pre>}
+                {event.error && <div className="mt-2 text-[12px] text-danger">{event.error.code}: {event.error.message}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+        {!loading && !result && events.length === 0 && !error && (
+          <div className="flex h-full min-h-32 items-center justify-center font-mono text-[11px] uppercase tracking-wider text-fg-faint">No invocation submitted.</div>
+        )}
       </div>
     </section>
   );
 }
 
 function JsonBlock({value}: {value: unknown}) {
-  return <pre className="rounded-lg border border-brand-outline-variant bg-brand-lowest p-4 whitespace-pre-wrap font-mono-code text-xs text-brand-on-surface-variant">{JSON.stringify(value, null, 2)}</pre>;
+  return <pre className="rounded border border-line bg-ink-950 p-4 whitespace-pre-wrap font-mono text-[11.5px] leading-relaxed text-fg-muted">{JSON.stringify(value, null, 2)}</pre>;
 }

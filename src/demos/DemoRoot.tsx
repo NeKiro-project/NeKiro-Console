@@ -25,7 +25,7 @@ const DEMOS = [
     id: 'terminal' as const,
     name: 'Terminal',
     tagline: 'Monospace density, amber accent',
-    description: 'Bloomberg-terminal minimalism. No rounded corners, no shadows — table-density rows, keyboard hints, one accent color.',
+    description: 'Bloomberg-terminal minimalism. No rounded corners, no shadows. Table-density rows, keyboard hints, one accent color.',
     icon: TerminalSquare,
     accent: 'from-amber-500 to-orange-500',
   },
@@ -81,7 +81,7 @@ function Launcher() {
         <div className="text-[11px] uppercase tracking-[0.3em] text-indigo-400 mb-3">NeKiro Console · Redesign demos</div>
         <h1 className="text-4xl font-extrabold tracking-tight">Three directions. Same data. Pick one.</h1>
         <p className="text-slate-400 mt-3 max-w-2xl">
-          Each demo renders the identical mock dataset — 6 Agent Cards, 1 Workspace, 4 Installations — with a fully styled
+          Each demo renders the identical mock dataset: 6 Agent Cards, 1 Workspace, 4 Installations, with a fully styled
           Registry and Installations surface. Compare, then tell me which direction becomes production.
         </p>
 

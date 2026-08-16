@@ -1,7 +1,6 @@
-import React from 'react';
-import {AlertTriangle, CheckCircle2, Database, Plus, Search, User} from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Database, Plus, Search, User } from 'lucide-react';
 
-import type {PlatformErrorView, Workspace} from '../types';
+import type { PlatformErrorView, Workspace } from '../types';
 
 interface HeaderProps {
   searchQuery: string;
@@ -33,31 +32,33 @@ export default function Header({
   apiConfigured,
 }: HeaderProps) {
   return (
-    <header className="fixed top-0 right-0 left-64 z-40 flex justify-between items-center px-7 bg-brand-bg/60 backdrop-blur-xl border-b border-brand-outline-variant h-16">
-      <div className="glass-header-controls flex items-center gap-3 2xl:gap-4 min-w-0">
-        <div className="glass-search-control relative flex items-center bg-brand-container border border-brand-outline-variant/60 rounded-xl px-2.5 py-1 h-9 transition-colors focus-within:border-brand-primary/50 focus-within:shadow-[0_0_0_3px_rgba(99,102,241,0.12)]">
-          <Search size={14} className="text-brand-on-surface-variant mr-2" />
+    <header className="fixed left-[232px] right-0 top-0 z-40 flex h-14 items-center justify-between gap-4 border-b border-line bg-ink-900/85 px-5 backdrop-blur-md max-[900px]:left-16 max-[900px]:px-3">
+      <div className="flex min-w-0 flex-1 items-center gap-2.5">
+        {/* Search */}
+        <label className="relative flex h-[30px] min-w-0 flex-1 items-center max-[900px]:max-w-none">
+          <Search size={13} className="pointer-events-none absolute left-2.5 text-fg-faint" />
           <input
             type="text"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder={searchPlaceholder}
-            className="bg-transparent border-none outline-none text-brand-on-surface font-mono-code text-[11px] w-48 xl:w-64 2xl:w-80 p-0 m-0 placeholder-brand-on-surface-variant/40 focus:ring-0"
+            className="field w-full pl-7 sm:w-[230px] xl:w-[320px]"
           />
-        </div>
+        </label>
 
-        <div className="glass-workspace-control flex items-center gap-2 bg-brand-container border border-brand-outline-variant/60 rounded-xl h-9 px-2">
-          <Database size={13} className={workspace ? 'text-green-400' : 'text-brand-on-surface-variant'} />
+        {/* Workspace control */}
+        <div className="flex h-[30px] items-center gap-1.5 rounded border border-line bg-ink-850 pl-2.5 pr-1.5">
+          <Database size={13} className={workspace ? 'text-ok' : 'text-fg-faint'} />
           <input
             value={workspaceDraft}
             onChange={(event) => setWorkspaceDraft(event.target.value)}
             placeholder="workspace id"
-            className="bg-transparent outline-none text-[10.5px] font-mono-code text-brand-on-surface w-24 xl:w-32 2xl:w-40 placeholder-brand-on-surface-variant/40"
+            className="w-[110px] bg-transparent font-mono text-[11.5px] text-fg outline-none placeholder:text-fg-faint xl:w-[160px] max-[900px]:w-16 max-[700px]:hidden"
           />
           <button
             onClick={onReadWorkspace}
             disabled={workspaceLoading || !workspaceDraft.trim()}
-            className="text-[9.5px] px-2 py-0.5 rounded bg-brand-high text-brand-on-surface-variant hover:text-brand-on-surface disabled:opacity-40"
+            className="btn h-6 px-2 text-[11px]"
           >
             Load
           </button>
@@ -66,36 +67,37 @@ export default function Header({
             disabled={workspaceLoading || !workspaceDraft.trim()}
             aria-label="Create workspace"
             title="Create workspace"
-            className="glass-create-workspace text-[9.5px] px-2 py-0.5 rounded bg-brand-primary/20 text-brand-primary hover:bg-brand-primary/30 disabled:opacity-40 flex items-center gap-1"
+            className="btn btn-primary h-6 px-2 text-[11px]"
           >
-            <Plus size={10} />
-            <span className="glass-create-label">Create</span>
+            <Plus size={11} />
+            <span>Create</span>
           </button>
         </div>
       </div>
 
-      <div className="glass-header-status pointer-events-none flex items-center gap-2 xl:gap-3">
+      <div className="flex min-w-0 items-center gap-2">
         {workspaceError && (
-          <div className="flex items-center gap-1.5 text-[10px] font-mono-code text-brand-error border border-brand-error/25 bg-brand-error-container/10 rounded px-2 py-1 max-w-[18rem] truncate" title={workspaceError.message}>
-            <AlertTriangle size={12} />
+          <div className="hidden max-w-[16rem] items-center gap-1.5 truncate rounded border border-danger/30 bg-danger-soft px-2 py-1 font-mono text-[10px] text-danger lg:flex" title={workspaceError.message}>
+            <AlertTriangle size={11} />
             <span>{workspaceError.code ?? 'WORKSPACE_ERROR'}</span>
-            {workspaceError.traceId && <span className="text-brand-on-surface-variant">trace {workspaceError.traceId}</span>}
+            {workspaceError.traceId && <span className="text-fg-faint">trace {workspaceError.traceId}</span>}
           </div>
         )}
 
-        <div className="glass-status-strip flex items-center gap-2 xl:gap-3 font-mono-label text-[10px]">
-          <span className="px-2.5 py-1 bg-brand-container rounded border border-brand-outline-variant/50 text-brand-on-surface-variant flex items-center gap-1.5">
-            <span className={'glass-status-dot w-1.5 h-1.5 rounded-full inline-block ' + (apiConfigured ? 'bg-green-400 text-green-400' : 'bg-brand-error text-brand-error')} />
-            API: {apiConfigured ? 'configured' : 'missing'}
+        <div className="flex items-center gap-1.5 font-mono text-[10px] text-fg-muted">
+          <span className="flex h-[26px] items-center gap-1.5 rounded border border-line bg-ink-850 px-2.5 uppercase tracking-wider">
+            <span className={`status-dot ${apiConfigured ? 'bg-ok' : 'bg-danger'}`} aria-hidden="true" />
+            <span className="max-[560px]:hidden">API: {apiConfigured ? 'configured' : 'missing'}</span>
+            <span className="hidden max-[560px]:inline">API</span>
           </span>
-          <span className="px-2.5 py-1 bg-brand-container rounded border border-brand-outline-variant/50 text-brand-on-surface-variant">
+          <span className="hidden h-[26px] items-center rounded border border-line bg-ink-850 px-2.5 md:flex">
             Workspace: {workspace?.workspaceId ?? 'not selected'}
           </span>
-          <span className="px-2.5 py-1 bg-brand-container rounded border border-brand-outline-variant/50 text-brand-on-surface-variant flex items-center gap-1.5">
-            <User size={12} />
+          <span className="hidden h-[26px] items-center gap-1.5 rounded border border-line bg-ink-850 px-2.5 md:flex">
+            <User size={11} />
             {userLabel}
           </span>
-          {workspace && <CheckCircle2 size={15} className="text-green-400" />}
+          {workspace && <CheckCircle2 size={14} className="text-ok" />}
         </div>
       </div>
     </header>
