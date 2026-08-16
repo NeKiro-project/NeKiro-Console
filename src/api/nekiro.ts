@@ -1517,6 +1517,7 @@ export function mapCatalogEntry(entry: CatalogEntry): Agent {
     status: entry.publicationStatus,
     schema: JSON.stringify(entry.card, null, 2),
     permissions: entry.card.permissions,
+    skills: entry.card.skills,
     registeredAt: entry.registeredAt,
     publishedAt: entry.publishedAt,
     publicAgentId: entry.publicAgentId,

@@ -3,20 +3,21 @@ import {AnimatePresence, motion} from 'motion/react';
 import {CheckCircle2, Cpu, HelpCircle, ShieldAlert, X} from 'lucide-react';
 
 import {mapCatalogEntry, NekiroApiClient, NekiroApiError, toPlatformErrorView, validateTrustedInstallation, type AgentCardV02, type AgentRelease} from './api/nekiro';
-import {agentKey, isCurrentRequest, matchesPublishedRelease, nextRequestGeneration} from './consolePolicy';
+import {agentKey, isCurrentRequest, isTrustedEnabledInstallation, matchesPublishedRelease, nextRequestGeneration} from './consolePolicy';
 import Header from './components/Header';
 import InstallationsTab from './components/InstallationsTab';
 import InvocationsTab from './components/InvocationsTab';
+import JourneyBar from './components/JourneyBar';
 import LedgerTab from './components/LedgerTab';
 import RegistryTab from './components/RegistryTab';
 import Sidebar from './components/Sidebar';
 import TrustedPublicationTab from './components/TrustedPublicationTab';
 import {requireConsoleConfiguration} from './consoleConfig';
-import type {Agent, Installation, InstallationStatus, PlatformErrorView, Workspace} from './types';
+import type {Agent, AgentIntent, ConsoleTab, Installation, InstallationStatus, InstallIntent, InvocationIntent, LedgerIntent, PlatformErrorView, Workspace} from './types';
 
 export default function App() {
   requireConsoleConfiguration(import.meta.env);
-  const [activeTab, setActiveTab] = useState<'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger'>('registry');
+  const [activeTab, setActiveTab] = useState<ConsoleTab>('registry');
   const [searchQuery, setSearchQuery] = useState('');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [providerAgents, setProviderAgents] = useState<Agent[]>([]);
@@ -36,11 +37,27 @@ export default function App() {
   const [installationError, setInstallationError] = useState<PlatformErrorView | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showSupport, setShowSupport] = useState(false);
+  const [trustedSelection, setTrustedSelection] = useState<AgentIntent>();
+  const [installSelection, setInstallSelection] = useState<InstallIntent>();
+  const [invocationSelection, setInvocationSelection] = useState<InvocationIntent>();
+  const [ledgerSelection, setLedgerSelection] = useState<LedgerIntent>();
+  const [traceComplete, setTraceComplete] = useState(false);
+  const intentSequence = useRef(0);
   const catalogRequestGeneration = useRef(0);
   const providerCatalogRequestGeneration = useRef(0);
   const workspaceRequestGeneration = useRef(0);
   const installationRequestGeneration = useRef(0);
   const defaultWorkspaceInitialized = useRef(false);
+
+  const navigate = (tab: ConsoleTab) => {
+    setActiveTab(tab);
+    setSearchQuery('');
+  };
+
+  const nextIntentSequence = () => {
+    intentSequence.current += 1;
+    return intentSequence.current;
+  };
 
   const providerClient = useMemo(
     () => new NekiroApiClient({
@@ -100,6 +117,9 @@ export default function App() {
     workspaceRequestGeneration.current = generation;
     installationRequestGeneration.current = nextRequestGeneration(installationRequestGeneration.current);
     setInstallations([]);
+    setInvocationSelection(undefined);
+    setLedgerSelection(undefined);
+    setTraceComplete(false);
     setInstallationLoading(false);
     setWorkspaceLoading(true);
     setWorkspaceError(null);
@@ -108,11 +128,13 @@ export default function App() {
       if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return null;
       setWorkspace(value);
       setWorkspaceDraft(value.workspaceId);
+      setTraceComplete(false);
       return value;
     } catch (error) {
       if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return null;
       setWorkspace(null);
       setInstallations([]);
+      setTraceComplete(false);
       setWorkspaceError(toPlatformErrorView(error, 'Unable to load Workspace.'));
       return null;
     } finally {
@@ -163,6 +185,9 @@ export default function App() {
     workspaceRequestGeneration.current = generation;
     installationRequestGeneration.current = nextRequestGeneration(installationRequestGeneration.current);
     setInstallations([]);
+    setInvocationSelection(undefined);
+    setLedgerSelection(undefined);
+    setTraceComplete(false);
     setInstallationLoading(false);
     setWorkspaceLoading(true);
     setWorkspaceError(null);
@@ -171,6 +196,7 @@ export default function App() {
       if (!isCurrentRequest(generation, workspaceRequestGeneration.current)) return;
       setWorkspace(value);
       setWorkspaceDraft(value.workspaceId);
+      setTraceComplete(false);
       await loadInstallations(value.workspaceId);
     } catch (error) {
       if (isCurrentRequest(generation, workspaceRequestGeneration.current)) {
@@ -227,6 +253,7 @@ export default function App() {
         await loadInstallations(operationWorkspaceId);
       }
     }
+    return installation;
   };
 
   const handleUpdateInstallation = async (installation: Installation, status: Exclude<InstallationStatus, 'uninstalled'>) => {
@@ -295,7 +322,7 @@ export default function App() {
   };
 
   return (
-    <div className="glass-app bg-brand-bg text-brand-on-surface font-sans h-screen w-screen overflow-hidden flex select-none relative">
+    <div className="glass-app bg-brand-bg text-brand-on-surface font-sans h-screen w-screen overflow-hidden flex relative">
       <div className="mesh-bg-container">
         <div className="mesh-blob blob1" />
         <div className="mesh-blob blob2" />
@@ -305,10 +332,7 @@ export default function App() {
 
       <Sidebar
         activeTab={activeTab}
-        setActiveTab={(tab) => {
-          setActiveTab(tab);
-          setSearchQuery('');
-        }}
+        setActiveTab={navigate}
         onOpenSettings={() => setShowSettings(true)}
         onOpenSupport={() => setShowSupport(true)}
       />
@@ -329,6 +353,15 @@ export default function App() {
       />
 
       <main className="ml-64 mt-16 w-[calc(100vw-256px)] h-[calc(100vh-64px)] overflow-y-auto bg-brand-bg p-7 relative">
+        <JourneyBar
+          activeTab={activeTab}
+          onNavigate={navigate}
+          agentCount={agents.length + draftAgents.length}
+          hasPublishedRelease={Boolean(installSelection)}
+          enabledInstallationCount={installations.filter(isTrustedEnabledInstallation).length}
+          hasCorrelation={Boolean(ledgerSelection)}
+          traceComplete={traceComplete}
+        />
         <AnimatePresence mode="wait" initial={false}>
           {activeTab === 'registry' && (
             <motion.div key="registry" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
@@ -343,6 +376,10 @@ export default function App() {
                 defaultOwnerId={import.meta.env.VITE_NEKIRO_PROVIDER_ID ?? ''}
                 defaultOwnerName={import.meta.env.VITE_NEKIRO_PROVIDER_NAME ?? ''}
                 searchQuery={searchQuery}
+                onContinueToTrusted={(agent) => {
+                  setTrustedSelection({agentKey: agentKey(agent), sequence: nextIntentSequence()});
+                  navigate('trusted');
+                }}
               />
             </motion.div>
           )}
@@ -355,7 +392,15 @@ export default function App() {
                 agents={providerAgents}
                 draftAgents={draftAgents}
                 providerCatalogError={providerCatalogError}
+                initialSelection={trustedSelection}
                 onRefresh={() => void loadProviderAgents(searchQuery)}
+                onContinueToInstall={(agent, release) => {
+                  setInstallSelection({agentKey: agentKey(agent), releaseId: release.releaseId, sequence: nextIntentSequence()});
+                  navigate('installations');
+                }}
+                onReleaseStateChange={(release) => {
+                  if (release.state !== 'published' && installSelection?.releaseId === release.releaseId) setInstallSelection(undefined);
+                }}
               />
             </motion.div>
           )}
@@ -370,24 +415,41 @@ export default function App() {
                 error={installationError}
                 searchQuery={searchQuery}
                 client={ownerClient}
+                initialSelection={installSelection}
                 onInstallAgent={handleInstallAgent}
                 onUpdateInstallation={handleUpdateInstallation}
                 onUninstall={handleUninstall}
                 onRefresh={() => void loadInstallations()}
                 onPublicInstalled={() => loadInstallations()}
+                onContinueToInvoke={(installation) => {
+                  setInvocationSelection({installationId: installation.installationId, sequence: nextIntentSequence()});
+                  navigate('invocations');
+                }}
               />
             </motion.div>
           )}
 
           {activeTab === 'invocations' && (
             <motion.div key="invocations" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <InvocationsTab workspace={workspace} installations={installations} client={ownerClient} />
+              <InvocationsTab
+                workspace={workspace}
+                installations={installations}
+                client={ownerClient}
+                initialSelection={invocationSelection}
+                onInspect={(_invocationId, traceId) => {
+                  setTraceComplete(false);
+                  setLedgerSelection({kind: 'trace', id: traceId, sequence: nextIntentSequence()});
+                  navigate('ledger');
+                }}
+              />
             </motion.div>
           )}
 
           {activeTab === 'ledger' && (
             <motion.div key="ledger" initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} exit={{opacity: 0, y: -10}} transition={{duration: 0.2}} className="w-full h-full">
-              <div key={workspace?.workspaceId ?? 'no-workspace'} className="contents"><LedgerTab workspace={workspace} client={ownerClient} /></div>
+              <div key={workspace?.workspaceId ?? 'no-workspace'} className="contents"><LedgerTab workspace={workspace} client={ownerClient} initialLookup={ledgerSelection} onReadSuccess={(readWorkspaceId) => {
+                if (activeWorkspaceRef.current?.workspaceId === readWorkspaceId) setTraceComplete(true);
+              }} /></div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -405,9 +467,9 @@ export default function App() {
       )}
 
       {showSupport && (
-        <Overlay title="MVP Boundary" icon={<HelpCircle size={22} />} onClose={() => setShowSupport(false)}>
+        <Overlay title="How the journey works" icon={<HelpCircle size={22} />} onClose={() => setShowSupport(false)}>
           <div className="space-y-3 text-sm text-brand-on-surface-variant">
-            <p>Live surfaces: Registry, Workspace, Installations, Invocation Dispatch, and metadata-only Ledger through public Gateway routes.</p>
+            <p>Follow Agents → Publish → Install → Invoke → Trace. Successful steps offer a direct continue action with exact server-returned identifiers.</p>
             <p>Runtime reads are Owner-authorized and Workspace-scoped. The Console never stores Agent secrets or fabricates Ledger events.</p>
           </div>
         </Overlay>
@@ -425,7 +487,7 @@ function Overlay({title, icon, children, onClose}: {title: string; icon: React.R
             {icon}
             <h2 className="font-headline-md text-sm font-bold text-brand-on-surface">{title}</h2>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-brand-high text-brand-on-surface-variant hover:text-brand-on-surface">
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded hover:bg-brand-high text-brand-on-surface-variant hover:text-brand-on-surface">
             <X size={18} />
           </button>
         </div>

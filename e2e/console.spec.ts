@@ -128,7 +128,7 @@ test('production Console completes trusted publication, invocation, trace, and i
 
   await page.goto('/');
   await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
-  await page.getByRole('button', {name: 'Installations', exact: true}).click();
+  await page.getByRole('button', {name: 'Install', exact: true}).click();
   const publicPanel = page.locator('section').filter({hasText: 'Public Share'});
   await publicPanel.getByLabel('Public Agent URL', {exact: true}).fill(shareB.publicUrl);
   const pastedPublicRequestPromise = page.waitForRequest((request) => request.method() === 'GET' && request.url().endsWith(`/v4/public/agents/${shareB.publicAgentId}`));
@@ -145,12 +145,12 @@ test('production Console completes trusted publication, invocation, trace, and i
   await publicPanel.getByRole('button', {name: 'Install exact Release', exact: true}).click();
   const pastedInstallResponse = await pastedInstallResponsePromise;
   expect(pastedInstallResponse.status()).toBe(201);
-  const pastedInstallation = await pastedInstallResponse.json() as {installedReleaseId: string; agentId: string; acceptedPermissions: string[]};
+  const pastedInstallation = await pastedInstallResponse.json() as {installationId: string; installedReleaseId: string; agentId: string; acceptedPermissions: string[]};
   expect(pastedInstallation).toMatchObject({installedReleaseId: releaseB.releaseId, agentId: runtimeB.id, acceptedPermissions: ['text.read']});
   await expect(publicPanel.getByText(`Installed exact Release ${releaseB.releaseId}.`, {exact: true})).toBeVisible();
   expect(publicResolutionRequests).toEqual([`${apiBaseURL}/v4/public/agents/${shareA.publicAgentId}`, `${apiBaseURL}/v4/public/agents/${shareB.publicAgentId}`]);
 
-  await page.getByRole('button', {name: 'Installations', exact: true}).click();
+  await page.getByRole('button', {name: 'Install', exact: true}).click();
   await selectOptionContaining(page.getByLabel('Published Agent', {exact: true}), runtimeA.id);
   await page.getByLabel('Trusted Release ID', {exact: true}).fill('release-does-not-exist');
   const preflightResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/releases/release-does-not-exist') && response.request().method() === 'GET');
@@ -166,13 +166,13 @@ test('production Console completes trusted publication, invocation, trace, and i
   await expect(page.getByText(/HTTP 404/)).toBeVisible();
   await expect(page.getByText(new RegExp('traceId: ' + escapeRegExp(preflightError.traceId)))).toBeVisible();
 
-  await page.getByRole('button', {name: 'Invocations', exact: true}).click();
+  await page.locator(`[data-installation-id="${pastedInstallation.installationId}"]`).getByRole('button', {name: 'Invoke', exact: true}).click();
   const installationSelect = page.getByLabel('Installed Agent', {exact: true});
-  await selectOptionContaining(installationSelect, runtimeB.id);
-  await page.getByLabel('Capability', {exact: true}).fill(runtimeB.capability);
+  await expect(installationSelect).toHaveValue(pastedInstallation.installationId);
+  await page.getByLabel('Capability', {exact: true}).selectOption(runtimeB.capability);
   await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'nested', value: {message: 'browser-json'}}));
   const jsonResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/workspaces/' + workspaceId + '/invocations') && response.request().method() === 'POST' && (response.request().postData() ?? '').includes('"stream":false'));
-  await page.getByRole('button', {name: 'Invoke', exact: true}).click();
+  await page.getByRole('button', {name: 'Invoke Agent', exact: true}).click();
   const jsonResponse = await jsonResponsePromise;
   const jsonResponseBody = await jsonResponse.text();
   if (jsonResponse.status() !== 200) await logInvocationTraceDiagnostic(page, jsonResponseBody);
@@ -185,23 +185,8 @@ test('production Console completes trusted publication, invocation, trace, and i
   expect(result.rootTaskId).toBeTruthy();
   expect(result.traceId).toBeTruthy();
 
-  await page.getByRole('button', {name: 'Invocations', exact: true}).click();
-  await selectOptionContaining(installationSelect, runtimeB.id);
-  await page.getByLabel('Capability', {exact: true}).fill(runtimeB.capability);
-  await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'stream-success', value: 'browser-sse'}));
-  await page.getByLabel('Stream result over SSE', {exact: true}).check();
-  const sseResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/workspaces/' + workspaceId + '/invocations') && response.request().method() === 'POST' && (response.request().postData() ?? '').includes('"stream":true'));
-  await page.getByRole('button', {name: 'Invoke', exact: true}).click();
-  const sseResponse = await sseResponsePromise;
-  expect(sseResponse.status()).toBe(200);
-  assertResultStream(await sseResponse.text());
-  await expect(page.getByText('#0 accepted', {exact: true})).toBeVisible();
-  await expect(page.getByText(/completed/, {exact: true}).last()).toBeVisible();
-
-  await page.getByRole('button', {name: 'Ledger', exact: true}).click();
-  await page.getByLabel('Trace ID', {exact: true}).fill(result.traceId);
   const traceResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/workspaces/' + workspaceId + '/traces/' + result.traceId) && response.request().method() === 'GET');
-  await page.getByRole('button', {name: 'Read', exact: true}).last().click();
+  await page.getByRole('button', {name: 'Open correlated trace', exact: true}).click();
   const traceResponse = await traceResponsePromise;
   expect(traceResponse.status()).toBe(200);
   const tracePayload = await traceResponse.json() as {
@@ -217,6 +202,7 @@ test('production Console completes trusted publication, invocation, trace, and i
   expect(childInvocation?.rootTaskId).toBe(rootInvocation?.rootTaskId);
   expect(childInvocation?.traceId).toBe(rootInvocation?.traceId);
   await expect(page.getByText(new RegExp(`${escapeRegExp(result.traceId)}`)).last()).toBeVisible();
+  await expect(page.locator('[data-journey-step="ledger"]')).toHaveAttribute('data-complete', 'true');
   const ledgerText = await page.locator('main').innerText();
   expect(ledgerText).toContain(runtimeA.id);
   expect(ledgerText).toContain(runtimeB.id);
@@ -225,6 +211,19 @@ test('production Console completes trusted publication, invocation, trace, and i
   expect(ledgerText).toContain(releaseB.releaseId);
   expect(ledgerText).toContain(releaseA.cardDigest);
   expect(ledgerText).toContain(releaseB.cardDigest);
+
+  await page.getByRole('button', {name: 'Invoke', exact: true}).click();
+  await selectOptionContaining(installationSelect, runtimeB.id);
+  await page.getByLabel('Capability', {exact: true}).selectOption(runtimeB.capability);
+  await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'stream-success', value: 'browser-sse'}));
+  await page.getByLabel('Stream result over SSE', {exact: true}).check();
+  const sseResponsePromise = page.waitForResponse((response) => response.url().includes('/v4/workspaces/' + workspaceId + '/invocations') && response.request().method() === 'POST' && (response.request().postData() ?? '').includes('"stream":true'));
+  await page.getByRole('button', {name: 'Invoke Agent', exact: true}).click();
+  const sseResponse = await sseResponsePromise;
+  expect(sseResponse.status()).toBe(200);
+  assertResultStream(await sseResponse.text());
+  await expect(page.getByText('#0 accepted', {exact: true})).toBeVisible();
+  await expect(page.getByText(/completed/, {exact: true}).last()).toBeVisible();
 
   const gatewayOrigin = new URL(apiBaseURL).origin;
   expect(apiRequests.length).toBeGreaterThan(0);
@@ -255,7 +254,7 @@ async function createWorkspace(page: Page): Promise<void> {
 }
 
 async function registerCard(page: Page, fixture: AgentFixture): Promise<PublicShare> {
-  await page.getByRole('button', {name: 'Registry', exact: true}).click();
+  await page.getByRole('button', {name: 'Agents', exact: true}).click();
   await page.getByRole('button', {name: 'Register Agent Card', exact: true}).click();
   await page.getByLabel('Agent ID', {exact: true}).fill(fixture.id);
   await page.getByLabel('Name', {exact: true}).fill(fixture.name);
@@ -277,11 +276,16 @@ async function registerCard(page: Page, fixture: AgentFixture): Promise<PublicSh
   expect(body.publicUrl).toBe(`${publicAgentOrigin}/a/${body.publicAgentId}`);
   await expect(page.getByText(fixture.id, {exact: true}).first()).toBeVisible();
   await expect(page.getByRole('link', {name: body.publicUrl, exact: true})).toBeVisible();
+  const publishResponsePromise = page.waitForResponse((candidate) => candidate.url().includes(`/v3/agents/${fixture.id}/versions/1.0.0/publish`) && candidate.request().method() === 'POST');
+  await page.getByRole('button', {name: 'Publish to Catalog', exact: true}).click();
+  expect((await publishResponsePromise).status()).toBe(200);
+  await page.getByRole('button', {name: 'Continue to Publish', exact: true}).click();
+  await expect(page.getByRole('heading', {name: 'Trusted Publication', exact: true})).toBeVisible();
   return {publicAgentId: body.publicAgentId as string, publicUrl: body.publicUrl as string};
 }
 
 async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTracker: BrowserLeakTracker): Promise<ReleaseEvidence> {
-  await page.getByRole('button', {name: 'Trusted Publication', exact: true}).click();
+  await page.getByRole('button', {name: 'Publish', exact: true}).click();
   await page.getByRole('button', {name: new RegExp(escapeRegExp(fixture.id))}).first().click();
   await page.getByLabel('Agent endpoint', {exact: true}).fill(fixture.endpoint);
   await page.getByRole('button', {name: 'Create Binding', exact: true}).click();
@@ -322,11 +326,14 @@ async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTrac
   if (!/^[A-Za-z0-9._:-]+$/.test(releaseId) || !/^[0-9a-f]{64}$/.test(cardDigest)) {
     throw new Error('Console did not render immutable Release provenance');
   }
+  await releaseSection.getByRole('button', {name: 'Continue to Install', exact: true}).click();
+  await expect(page.getByLabel('Published Agent', {exact: true})).toHaveValue(`${fixture.id}@1.0.0`);
+  await expect(page.getByLabel('Trusted Release ID', {exact: true})).toHaveValue(releaseId);
   return {releaseId, cardDigest};
 }
 
 async function installRelease(page: Page, fixture: AgentFixture, releaseId: string): Promise<void> {
-  await page.getByRole('button', {name: 'Installations', exact: true}).click();
+  await page.getByRole('button', {name: 'Install', exact: true}).click();
   const agentSelect = page.getByLabel('Published Agent', {exact: true});
   await selectOptionContaining(agentSelect, fixture.id);
   await page.getByLabel('Trusted Release ID', {exact: true}).fill(releaseId);

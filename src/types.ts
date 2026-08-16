@@ -1,9 +1,41 @@
 export type PublicationStatus = 'draft' | 'published' | 'disabled';
 export type InstallationStatus = 'enabled' | 'disabled' | 'uninstalled';
+export type ConsoleTab = 'registry' | 'trusted' | 'installations' | 'invocations' | 'ledger';
+
+export interface AgentIntent {
+  agentKey: string;
+  sequence: number;
+}
+
+export interface InstallIntent {
+  agentKey: string;
+  releaseId: string;
+  sequence: number;
+}
+
+export interface InvocationIntent {
+  installationId: string;
+  sequence: number;
+}
+
+export interface LedgerIntent {
+  kind: 'invocation' | 'trace';
+  id: string;
+  sequence: number;
+}
 
 export interface AgentPermissionSummary {
   id: string;
   description: string;
+}
+
+export interface AgentSkillSummary {
+  id: string;
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  outputSchema: Record<string, unknown>;
+  requiredPermissions: string[];
 }
 
 export interface Agent {
@@ -17,6 +49,7 @@ export interface Agent {
   status: PublicationStatus;
   schema: string;
   permissions: AgentPermissionSummary[];
+  skills?: AgentSkillSummary[];
   registeredAt: string;
   publishedAt?: string;
   publicAgentId?: string;

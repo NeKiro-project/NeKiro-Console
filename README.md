@@ -8,6 +8,16 @@ The Console talks only to the NeKiro Gateway. It supports trusted Agent
 publication, public Agent share URLs, Catalog discovery, exact Release
 installation, managed JSON/SSE invocation, and Workspace-scoped Ledger reads.
 
+The authenticated Console presents those capabilities as one guided journey:
+
+```text
+Agents -> Publish -> Install -> Invoke -> Trace
+```
+
+Successful steps carry only the exact server-returned Agent, Release,
+Installation, and correlation identifiers into the next screen. The browser
+does not persist those handoffs or turn failed reads into local success.
+
 ## Configuration
 
 Copy `.env.example` to `.env.local` and provide every value explicitly:
