@@ -128,7 +128,7 @@ test('production Console completes trusted publication, invocation, trace, and i
 
   await page.goto('/');
   await expect(page.getByRole('heading', {name: 'Agent Card Catalog'})).toBeVisible();
-  await page.getByRole('button', {name: 'Install', exact: true}).click();
+  await page.locator('#sidebar').getByRole('button', {name: 'Install', exact: true}).click();
   const publicPanel = page.locator('section').filter({hasText: 'Public Share'});
   await publicPanel.getByLabel('Public Agent URL', {exact: true}).fill(shareB.publicUrl);
   const pastedPublicRequestPromise = page.waitForRequest((request) => request.method() === 'GET' && request.url().endsWith(`/v1/public/agents/${shareB.publicAgentId}`));
@@ -150,7 +150,7 @@ test('production Console completes trusted publication, invocation, trace, and i
   await expect(publicPanel.getByText(`Installed exact Release ${releaseB.releaseId}.`, {exact: true})).toBeVisible();
   expect(publicResolutionRequests).toEqual([`${apiBaseURL}/v1/public/agents/${shareA.publicAgentId}`, `${apiBaseURL}/v1/public/agents/${shareB.publicAgentId}`]);
 
-  await page.getByRole('button', {name: 'Install', exact: true}).click();
+  await page.locator('#sidebar').getByRole('button', {name: 'Install', exact: true}).click();
   await selectOptionContaining(page.getByLabel('Published Agent', {exact: true}), runtimeA.id);
   await page.getByLabel('Trusted Release ID', {exact: true}).fill('release-does-not-exist');
   const preflightResponsePromise = page.waitForResponse((response) => response.url().includes('/v1/releases/release-does-not-exist') && response.request().method() === 'GET');
@@ -212,7 +212,7 @@ test('production Console completes trusted publication, invocation, trace, and i
   expect(ledgerText).toContain(releaseA.cardDigest);
   expect(ledgerText).toContain(releaseB.cardDigest);
 
-  await page.getByRole('button', {name: 'Invoke', exact: true}).click();
+  await page.locator('#sidebar').getByRole('button', {name: 'Invoke', exact: true}).click();
   await selectOptionContaining(installationSelect, runtimeB.id);
   await page.getByLabel('Capability', {exact: true}).selectOption(runtimeB.capability);
   await page.getByLabel('Input JSON', {exact: true}).fill(JSON.stringify({fixture: 'stream-success', value: 'browser-sse'}));
@@ -254,7 +254,7 @@ async function createWorkspace(page: Page): Promise<void> {
 }
 
 async function registerCard(page: Page, fixture: AgentFixture): Promise<PublicShare> {
-  await page.getByRole('button', {name: 'Agents', exact: true}).click();
+  await page.locator('#sidebar').getByRole('button', {name: 'Agents', exact: true}).click();
   await page.getByRole('button', {name: 'Register Agent Card', exact: true}).click();
   await page.getByLabel('Agent ID', {exact: true}).fill(fixture.id);
   await page.getByLabel('Name', {exact: true}).fill(fixture.name);
@@ -285,7 +285,7 @@ async function registerCard(page: Page, fixture: AgentFixture): Promise<PublicSh
 }
 
 async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTracker: BrowserLeakTracker): Promise<ReleaseEvidence> {
-  await page.getByRole('button', {name: 'Publish', exact: true}).click();
+  await page.locator('#sidebar').getByRole('button', {name: 'Publish', exact: true}).click();
   await page.getByRole('button', {name: new RegExp(escapeRegExp(fixture.id))}).first().click();
   await page.getByLabel('Agent endpoint', {exact: true}).fill(fixture.endpoint);
   await page.getByRole('button', {name: 'Create Binding', exact: true}).click();
@@ -333,7 +333,7 @@ async function publishTrustedRelease(page: Page, fixture: AgentFixture, leakTrac
 }
 
 async function installRelease(page: Page, fixture: AgentFixture, releaseId: string): Promise<void> {
-  await page.getByRole('button', {name: 'Install', exact: true}).click();
+  await page.locator('#sidebar').getByRole('button', {name: 'Install', exact: true}).click();
   const agentSelect = page.getByLabel('Published Agent', {exact: true});
   await selectOptionContaining(agentSelect, fixture.id);
   await page.getByLabel('Trusted Release ID', {exact: true}).fill(releaseId);
