@@ -1,5 +1,5 @@
 import {createReadStream} from 'node:fs';
-import {access, readFile} from 'node:fs/promises';
+import {readFile, stat} from 'node:fs/promises';
 import {createServer} from 'node:http';
 import {extname, resolve, sep} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
@@ -115,7 +115,7 @@ export function createConsoleServer({configuration, distDirectory}) {
     }
     let asset = candidate;
     try {
-      await access(asset);
+      if (!(await stat(asset)).isFile()) asset = resolve(root, 'index.html');
     } catch {
       asset = resolve(root, 'index.html');
     }
@@ -126,8 +126,12 @@ export function createConsoleServer({configuration, distDirectory}) {
       'content-security-policy': "default-src 'self'; connect-src 'self' http: https:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
       'x-content-type-options': 'nosniff',
     });
-    body?.pipe(response);
-    if (!body) response.end();
+    if (body) {
+      body.once('error', () => response.destroy());
+      body.pipe(response);
+    } else {
+      response.end();
+    }
   });
 }
 

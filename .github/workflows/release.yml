@@ -25,6 +25,7 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           test "$(git cat-file -t "$RELEASE_TAG")" = tag
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$GITHUB_SHA"
           test "v$(node -p "require('./package.json').version")" = "$RELEASE_TAG"
 
       - name: Install pnpm
@@ -68,7 +69,7 @@ jobs:
             --tag "$IMAGE:$RELEASE_TAG" \
             --push .
           digest="$(jq -r '.["containerimage.digest"]' image-metadata.json)"
-          test "$digest" != null
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           jq -n \
             --arg tag "$RELEASE_TAG" \
             --arg commit "$GITHUB_SHA" \
