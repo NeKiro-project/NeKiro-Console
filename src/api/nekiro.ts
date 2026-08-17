@@ -373,17 +373,17 @@ export class NekiroApiClient {
 
   searchAgents(params: CatalogSearchParams = {}): Promise<CatalogSearchResponse> {
     const suffix = this.queryString(params);
-    return this.request<unknown>('/v3/agents' + suffix).then((value) => validateCatalogSearchResponse(value, this.publicAgentOrigin));
+    return this.request<unknown>('/v1/agents' + suffix).then((value) => validateCatalogSearchResponse(value, this.publicAgentOrigin));
   }
 
   resolvePublicAgent(publicAgentId: string): Promise<PublicAgentShare> {
     const safePublicAgentID = readPublicAgentID(publicAgentId);
-    return this.publicRequest<unknown>('/v4/public/agents/' + encodeURIComponent(safePublicAgentID))
+    return this.publicRequest<unknown>('/v1/public/agents/' + encodeURIComponent(safePublicAgentID))
       .then((value) => validatePublicAgentShare(value, safePublicAgentID, this.publicAgentOrigin));
   }
 
   registerAgent(card: AgentCardV02): Promise<CatalogEntry> {
-    return this.request<unknown>('/v3/agents', {
+    return this.request<unknown>('/v1/agents', {
       method: 'POST',
       body: JSON.stringify({card}),
     }, 201).then((value) => validateCatalogEntry(value, this.publicAgentOrigin));
@@ -406,7 +406,7 @@ export class NekiroApiClient {
     const safeAgentId = readIdentifier(agentId, 'agentId');
     const safeRequest = validateCreateEndpointBindingRequest(request);
     return this.trustedRequest<EndpointBinding>(
-      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/agents/' + encodeURIComponent(safeAgentId) + '/endpoint-bindings',
+      '/v1/providers/' + encodeURIComponent(safeProviderId) + '/agents/' + encodeURIComponent(safeAgentId) + '/endpoint-bindings',
       {method: 'POST', body: JSON.stringify(safeRequest)},
       (value) => validateEndpointBinding(value, {providerId: safeProviderId, agentId: safeAgentId, version: safeRequest.version}),
       201,
@@ -417,7 +417,7 @@ export class NekiroApiClient {
     const safeProviderId = readIdentifier(providerId, 'providerId');
     const safeBindingId = readIdentifier(bindingId, 'bindingId');
     return this.trustedRequest<EndpointBinding>(
-      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId),
+      '/v1/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId),
       {},
       (value) => validateEndpointBinding(value, {providerId: safeProviderId, bindingId: safeBindingId}),
     );
@@ -427,7 +427,7 @@ export class NekiroApiClient {
     const safeProviderId = readIdentifier(providerId, 'providerId');
     const safeBindingId = readIdentifier(bindingId, 'bindingId');
     return this.trustedRequest<VerificationChallenge>(
-      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId) + '/challenges',
+      '/v1/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId) + '/challenges',
       {method: 'POST'},
       (value) => validateVerificationChallenge(value, safeBindingId),
       201,
@@ -439,7 +439,7 @@ export class NekiroApiClient {
     const safeBindingId = readIdentifier(bindingId, 'bindingId');
     const safeChallengeId = readIdentifier(challengeId, 'challengeId');
     return this.trustedRequest<EndpointBinding>(
-      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId) + '/challenges/' + encodeURIComponent(safeChallengeId) + '/complete',
+      '/v1/providers/' + encodeURIComponent(safeProviderId) + '/endpoint-bindings/' + encodeURIComponent(safeBindingId) + '/challenges/' + encodeURIComponent(safeChallengeId) + '/complete',
       {method: 'POST'},
       (value) => validateEndpointBinding(value, {providerId: safeProviderId, bindingId: safeBindingId}),
     );
@@ -450,7 +450,7 @@ export class NekiroApiClient {
     const safeAgentId = readIdentifier(agentId, 'agentId');
     const safeRequest = validateCreateAgentReleaseRequest(request);
     return this.trustedRequest<AgentRelease>(
-      '/v4/providers/' + encodeURIComponent(safeProviderId) + '/agents/' + encodeURIComponent(safeAgentId) + '/releases',
+      '/v1/providers/' + encodeURIComponent(safeProviderId) + '/agents/' + encodeURIComponent(safeAgentId) + '/releases',
       {method: 'POST', body: JSON.stringify(safeRequest)},
       (value) => validateAgentRelease(value, {
         providerId: safeProviderId,
@@ -465,7 +465,7 @@ export class NekiroApiClient {
   getAgentRelease(releaseId: string): Promise<AgentRelease> {
     const safeReleaseId = readIdentifier(releaseId, 'releaseId');
     return this.trustedRequest<AgentRelease>(
-      '/v4/releases/' + encodeURIComponent(safeReleaseId),
+      '/v1/releases/' + encodeURIComponent(safeReleaseId),
       {},
       (value) => validateAgentRelease(value, {releaseId: safeReleaseId}),
     );
@@ -488,14 +488,14 @@ export class NekiroApiClient {
   }
 
   createWorkspace(workspaceId: string): Promise<Workspace> {
-    return this.request<unknown>('/v3/workspaces', {
+    return this.request<unknown>('/v1/workspaces', {
       method: 'POST',
       body: JSON.stringify({workspaceId: readIdentifier(workspaceId, 'workspaceId')}),
     }, 201).then((value) => validateWorkspace(value));
   }
 
   getWorkspace(workspaceId: string): Promise<Workspace> {
-    return this.request<unknown>('/v3/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId'))).then((value) => validateWorkspace(value));
+    return this.request<unknown>('/v1/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId'))).then((value) => validateWorkspace(value));
   }
 
   installAgent(workspaceId: string, request: InstallAgentRequest): Promise<Installation> {
@@ -653,11 +653,11 @@ export class NekiroApiClient {
   }
 
   private versionPath(agentId: string, version: string): string {
-    return '/v3/agents/' + encodeURIComponent(agentId) + '/versions/' + encodeURIComponent(version);
+    return '/v1/agents/' + encodeURIComponent(agentId) + '/versions/' + encodeURIComponent(version);
   }
 
   private workspaceInstallationPath(workspaceId: string): string {
-    return '/v3/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/installations';
+    return '/v1/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/installations';
   }
 
   private installationPath(workspaceId: string, installationId: string): string {
@@ -665,17 +665,17 @@ export class NekiroApiClient {
   }
 
   private invocationPath(workspaceId: string): string {
-    return '/v4/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/invocations';
+    return '/v1/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/invocations';
   }
 
   private tracePath(workspaceId: string, traceId: string): string {
-    return '/v4/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/traces/' + encodeURIComponent(readIdentifier(traceId, 'traceId'));
+    return '/v1/workspaces/' + encodeURIComponent(readIdentifier(workspaceId, 'workspaceId')) + '/traces/' + encodeURIComponent(readIdentifier(traceId, 'traceId'));
   }
 
   private releaseAction(releaseId: string, action: 'verify' | 'publish' | 'suspend' | 'revoke'): Promise<AgentRelease> {
     const safeReleaseId = readIdentifier(releaseId, 'releaseId');
     return this.trustedRequest<AgentRelease>(
-      '/v4/releases/' + encodeURIComponent(safeReleaseId) + '/' + action,
+      '/v1/releases/' + encodeURIComponent(safeReleaseId) + '/' + action,
       {method: 'POST'},
       (value) => validateAgentRelease(value, {releaseId: safeReleaseId}),
     );

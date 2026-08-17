@@ -1,17 +1,17 @@
 {
   "name": "@nekiro/console",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@11.3.0",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
+    "preview": "node server.mjs",
+    "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/api/nekiro.test.ts src/consoleConfig.test.ts src/consolePolicy.test.ts src/publicAgentUrl.test.ts src/components/consoleSurface.test.tsx src/demos/routing.test.ts",
+    "test": "tsx --test src/api/nekiro.test.ts src/consoleConfig.test.ts src/consolePolicy.test.ts src/publicAgentUrl.test.ts src/components/consoleSurface.test.tsx src/demos/routing.test.ts && node --test server.test.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

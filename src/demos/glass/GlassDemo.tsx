@@ -14,8 +14,8 @@ type Tab = 'registry' | 'installations' | 'invocations' | 'ledger';
 const NAV: {id: Tab; label: string; icon: React.ElementType; hint: string}[] = [
   {id: 'registry', label: 'Registry', icon: Database, hint: '6 cards'},
   {id: 'installations', label: 'Installations', icon: Cpu, hint: '4 pins'},
-  {id: 'invocations', label: 'Invocations', icon: PlayCircle, hint: 'v4'},
-  {id: 'ledger', label: 'Ledger', icon: BookOpen, hint: 'v4'},
+  {id: 'invocations', label: 'Invocations', icon: PlayCircle, hint: 'v1'},
+  {id: 'ledger', label: 'Ledger', icon: BookOpen, hint: 'v1'},
 ];
 
 export default function GlassDemo() {
@@ -101,7 +101,7 @@ export default function GlassDemo() {
         </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-[10.5px] font-jb text-emerald-300 border border-emerald-400/20 bg-emerald-400/[0.07] rounded-full px-2.5 py-1">
-            <Zap size={11} /> Northbound /v3
+            <Zap size={11} /> Platform API /v1
           </span>
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-violet-500 flex items-center justify-center text-[11px] font-bold text-white shadow-[0_0_16px_rgba(99,102,241,0.4)]">PT</div>
         </div>
@@ -307,7 +307,7 @@ function Gated({kind}: {kind: 'invocations' | 'ledger'}) {
             : 'The Ledger surface is contract-aware only. No simulated traces or fabricated timelines are shown as platform facts.'}
         </p>
         <div className="mt-6 font-jb text-[10.5px] text-indigo-300/80 border border-indigo-400/20 bg-indigo-400/[0.06] rounded-lg px-3 py-2 inline-block">
-          {isInv ? 'POST /v4/workspaces/{id}/invocations' : 'GET /v4/workspaces/{id}/traces/{traceId}'}
+          {isInv ? 'POST /v1/workspaces/{id}/invocations' : 'GET /v1/workspaces/{id}/traces/{traceId}'}
         </div>
       </div>
     </div>

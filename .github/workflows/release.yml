@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out the tagged revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Verify annotated tag and package version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test "$(git cat-file -t "$RELEASE_TAG")" = tag
+          test "$(git rev-list -n 1 "$RELEASE_TAG")" = "$GITHUB_SHA"
+          test "v$(node -p "require('./package.json').version")" = "$RELEASE_TAG"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: 11.3.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.16.0
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Verify release source
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm test
+          pnpm build
+
+      - name: Authenticate to GHCR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build and publish immutable Console image
+        shell: bash
+        env:
+          IMAGE: ghcr.io/nekiro-project/nekiro-console
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          docker buildx create --use
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --provenance=mode=max \
+            --sbom=true \
+            --metadata-file image-metadata.json \
+            --tag "$IMAGE:$RELEASE_TAG" \
+            --push .
+          digest="$(jq -r '.["containerimage.digest"]' image-metadata.json)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          jq -n \
+            --arg tag "$RELEASE_TAG" \
+            --arg commit "$GITHUB_SHA" \
+            --arg image "$IMAGE:$RELEASE_TAG" \
+            --arg digest "$digest" \
+            --arg platformApiVersion v1 \
+            '{schemaVersion:"1",tag:$tag,commitSha:$commit,platformApiVersion:$platformApiVersion,images:{console:{reference:$image,digest:$digest}}}' > images.json
+          sha256sum images.json > checksums.txt
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" images.json checksums.txt --verify-tag --generate-notes --title "NeKiro Console $RELEASE_TAG"

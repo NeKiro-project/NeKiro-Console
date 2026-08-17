@@ -29,7 +29,7 @@ export default function TerminalDemo() {
               <Icon size={13} /> {label}<span className="ml-auto text-[9px] text-[#5e5a51]">{id === 'registry' ? '06' : id === 'installations' ? '04' : '—'}</span>
             </button>
           ))}
-          <div className="mt-8 border-t border-[#2e2c27] pt-4 text-[10px] text-[#6f6b62] leading-relaxed">STRICT MODE<br /><span className="text-emerald-400">NO FABRICATED EVENTS</span><br />NORTHBOUND API v4</div>
+          <div className="mt-8 border-t border-[#2e2c27] pt-4 text-[10px] text-[#6f6b62] leading-relaxed">STRICT MODE<br /><span className="text-emerald-400">NO FABRICATED EVENTS</span><br />PLATFORM API v1</div>
         </aside>
         <main className="flex-1 overflow-y-auto p-6">
           <div className="flex items-start justify-between mb-6">
@@ -61,5 +61,5 @@ function Installations({query, setQuery}: {query: string; setQuery: (value: stri
 }
 
 function RuntimePanel({kind}: {kind: 'invocations' | 'ledger'}) {
-  return <div className="max-w-3xl border border-[#3b3830] bg-[#0f100f] p-6"><div className="flex items-center gap-3 text-amber-200"><ArrowUpRight size={16} /><span className="text-sm">{kind === 'invocations' ? 'POST /v4/workspaces/{workspaceId}/invocations' : 'GET /v4/workspaces/{workspaceId}/traces/{traceId}'}</span></div><p className="mt-5 text-[11px] leading-relaxed text-[#aaa59a]">Live Owner-only surface. Runtime facts are read from the Gateway; the demo intentionally shows the contract boundary without inventing an execution.</p><div className="mt-6 grid grid-cols-3 gap-3 text-[10px]"><div className="border border-[#34312b] p-3"><div className="text-[#777268]">AUTH</div><div className="text-emerald-400 mt-1">OWNER</div></div><div className="border border-[#34312b] p-3"><div className="text-[#777268]">MODE</div><div className="text-amber-200 mt-1">JSON / SSE</div></div><div className="border border-[#34312b] p-3"><div className="text-[#777268]">STORAGE</div><div className="text-[#aaa59a] mt-1">METADATA ONLY</div></div></div></div>;
+  return <div className="max-w-3xl border border-[#3b3830] bg-[#0f100f] p-6"><div className="flex items-center gap-3 text-amber-200"><ArrowUpRight size={16} /><span className="text-sm">{kind === 'invocations' ? 'POST /v1/workspaces/{workspaceId}/invocations' : 'GET /v1/workspaces/{workspaceId}/traces/{traceId}'}</span></div><p className="mt-5 text-[11px] leading-relaxed text-[#aaa59a]">Live Owner-only surface. Runtime facts are read from the Gateway; the demo intentionally shows the contract boundary without inventing an execution.</p><div className="mt-6 grid grid-cols-3 gap-3 text-[10px]"><div className="border border-[#34312b] p-3"><div className="text-[#777268]">AUTH</div><div className="text-emerald-400 mt-1">OWNER</div></div><div className="border border-[#34312b] p-3"><div className="text-[#777268]">MODE</div><div className="text-amber-200 mt-1">JSON / SSE</div></div><div className="border border-[#34312b] p-3"><div className="text-[#777268]">STORAGE</div><div className="text-[#aaa59a] mt-1">METADATA ONLY</div></div></div></div>;
 }

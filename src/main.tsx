@@ -3,7 +3,7 @@ import {createRoot} from 'react-dom/client';
 
 import App from './App.tsx';
 import PublicAgentPage from './components/PublicAgentPage.tsx';
-import {requirePublicConsoleConfiguration} from './consoleConfig.ts';
+import {consoleEnvironment, requirePublicConsoleConfiguration} from './consoleConfig.ts';
 import {demoFromHash, type DemoId} from './demos/routing';
 import './index.css';
 
@@ -24,7 +24,7 @@ function Root() {
   const demo = demoFromHash(hash);
   if (demo) return <Suspense fallback={<DemoLoading />}><DemoRoot demo={demo as DemoId} /></Suspense>;
   if (window.location.pathname.startsWith('/a/')) {
-    requirePublicConsoleConfiguration(import.meta.env);
+    requirePublicConsoleConfiguration(consoleEnvironment());
     return <ConfigurationBoundary><PublicAgentPage /></ConfigurationBoundary>;
   }
   return <ConfigurationBoundary><App /></ConfigurationBoundary>;

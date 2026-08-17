@@ -1,21 +1,23 @@
 import React, {useEffect, useMemo, useState} from 'react';
 
 import {NekiroApiClient, toPlatformErrorView} from '../api/nekiro';
+import {consoleEnvironment} from '../consoleConfig';
 import type {PlatformErrorView, Workspace} from '../types';
 import PublicAgentInstallPanel from './PublicAgentInstallPanel';
 
 export default function PublicAgentPage() {
-  const ownerToken = import.meta.env.VITE_NEKIRO_OWNER_TOKEN;
-  const defaultWorkspaceID = import.meta.env.VITE_NEKIRO_DEFAULT_WORKSPACE_ID;
+  const consoleEnv = consoleEnvironment();
+  const ownerToken = consoleEnv.VITE_NEKIRO_OWNER_TOKEN as string;
+  const defaultWorkspaceID = consoleEnv.VITE_NEKIRO_DEFAULT_WORKSPACE_ID as string;
   const hasOwnerContext = typeof ownerToken === 'string' && ownerToken !== '' && typeof defaultWorkspaceID === 'string' && defaultWorkspaceID !== '';
   const client = useMemo(() => new NekiroApiClient({
-    baseUrl: import.meta.env.VITE_NEKIRO_API_BASE_URL,
-    publicAgentOrigin: import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN,
+    baseUrl: consoleEnv.VITE_NEKIRO_API_BASE_URL as string,
+    publicAgentOrigin: consoleEnv.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN as string,
     ...(hasOwnerContext ? {token: ownerToken} : {anonymousOnly: true}),
   }), [hasOwnerContext, ownerToken]);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [workspaceError, setWorkspaceError] = useState<PlatformErrorView | null>(null);
-  const initialURL = import.meta.env.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN
+  const initialURL = (consoleEnv.VITE_NEKIRO_PUBLIC_AGENT_ORIGIN as string)
     + window.location.pathname
     + window.location.search
     + window.location.hash;

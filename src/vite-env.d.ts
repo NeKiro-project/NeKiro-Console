@@ -7,3 +7,7 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+interface Window {
+  readonly __NEKIRO_CONFIG__?: Record<string, unknown>;
+}

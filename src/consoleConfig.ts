@@ -7,6 +7,15 @@ const requiredConfigurationNames = [
   'VITE_NEKIRO_PUBLIC_AGENT_ORIGIN',
 ] as const;
 
+export type ConsoleEnvironment = Record<string, unknown>;
+
+export function consoleEnvironment(
+  buildEnvironment: ConsoleEnvironment = import.meta.env,
+  runtimeEnvironment: ConsoleEnvironment | undefined = globalThis.window?.__NEKIRO_CONFIG__,
+): ConsoleEnvironment {
+  return runtimeEnvironment ?? buildEnvironment;
+}
+
 export function requireConsoleConfiguration(env: Record<string, unknown>): void {
   for (const name of requiredConfigurationNames) {
     const value = env[name];
